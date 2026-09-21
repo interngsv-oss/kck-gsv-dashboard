@@ -58,6 +58,19 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def no_store_api_responses(request, call_next):
+    # Every /api/* response reflects live, frequently-changing data (bills,
+    # meta, upload history, ...) - without an explicit no-store, a browser
+    # can still serve a cached copy of a GET response instead of re-fetching
+    # it, which would show stale data (e.g. "Data Available" missing a
+    # just-uploaded month) even on a route that itself works correctly.
+    response = await call_next(request)
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
     # Without this, an unhandled exception (e.g. a Posist export with a
