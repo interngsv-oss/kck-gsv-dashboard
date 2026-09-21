@@ -1872,11 +1872,9 @@ function renderOverview(allBills, hourly, disc, cancel, items){
 
 function renderHourlySales(hourly){
   const sales = hourly.reduce((s,r) => s + r.salesValue, 0);
-  const [s, e] = periodRange();
-  const days = Math.max(1, Math.round((e - s) / 86400000));
   document.getElementById("statSalesTotal").textContent = rs(sales);
   document.getElementById("statSalesBills").textContent = num(hourly.length);
-  document.getElementById("statSalesAvg").textContent = (hourly.length / days).toFixed(1);
+  document.getElementById("statSalesAvg").textContent = rs(hourly.length ? sales / hourly.length : 0);
   document.getElementById("salesHeatmapWrap").innerHTML =
     heatmapHTML(hourly, "salesValue", C.gold, x => Math.round(x/1000), true, x => rs(x));
   const vals = sumByHour(hourly, "salesValue");
