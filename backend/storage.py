@@ -157,6 +157,18 @@ def append_upload_history(entry):
     return history
 
 
+def delete_upload_history_month(month):
+    """Remove every upload-history entry that touched `month` - e.g. after
+    a full delete_month() wipe of that month across every dataset, so the
+    History table doesn't keep showing a month that no longer has any data
+    behind it. Returns how many entries were removed."""
+    history = read_upload_history()
+    kept = [h for h in history if month not in (h.get("months") or [])]
+    removed = len(history) - len(kept)
+    _write_json(os.path.join(DATA_DIR, "upload_history.json"), kept)
+    return removed
+
+
 def bulk_write_upload(datasets_rows, meta, history_extra):
     """Same interface as storage_db.py's version (which batches everything
     into one Postgres connection for real connection-count reasons) - here

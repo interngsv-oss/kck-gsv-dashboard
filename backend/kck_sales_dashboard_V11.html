@@ -1244,13 +1244,14 @@ const isoLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0
    whole calendar month - shorter and clearer for the common case (a single
    month's upload), while still showing exact start/end dates for a single
    day or a partial/multi-month range. Used by "Data Available". */
+/* "Data Available" shows month names only, never exact dates - e.g. data
+   running from 5 Apr to 25 Aug is "Apr 2026 to Aug 2026", not "5 Apr 2026
+   to 25 Aug 2026", regardless of which exact day within either month the
+   data happens to start/end on. */
 function formatDateRangeLabel(from, to){
-  if (from.toDateString() === to.toDateString()) return fmtDateLong(from);
-  const lastDayOfMonth = new Date(from.getFullYear(), from.getMonth() + 1, 0).getDate();
-  const isWholeMonth = from.getDate() === 1 && to.getMonth() === from.getMonth() &&
-    to.getFullYear() === from.getFullYear() && to.getDate() === lastDayOfMonth;
-  if (isWholeMonth) return `${MONTHS[from.getMonth()]} ${from.getFullYear()}`;
-  return `${fmtDateLong(from)} to ${fmtDateLong(to)}`;
+  const fromLabel = `${MONTHS[from.getMonth()]} ${from.getFullYear()}`;
+  const toLabel = `${MONTHS[to.getMonth()]} ${to.getFullYear()}`;
+  return fromLabel === toLabel ? fromLabel : `${fromLabel} to ${toLabel}`;
 }
 
 /* =====================================================================

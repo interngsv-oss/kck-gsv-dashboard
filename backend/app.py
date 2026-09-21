@@ -310,7 +310,16 @@ def delete_month_data(payload: Dict[str, Any]):
     removed = {d: storage.delete_month(d, month) for d in datasets}
     if "bills" in datasets:
         storage.recompute_meta_dates()
-    return {"month": month, "removed": removed}
+    # Only purge this month's Upload History rows when EVERY dataset for it
+    # was just deleted (a full wipe of the month) - a partial delete (e.g.
+    # just Cancelled KOTs) still has real data behind it, so the history
+    # entries describing that upload are still meaningful and shouldn't
+    # disappear. A full wipe leaves nothing behind them, so keeping the
+    # history rows would just show a month with no data anywhere.
+    history_removed = 0
+    if set(datasets) >= set(EDITABLE_DATASETS):
+        history_removed = storage.delete_upload_history_month(month)
+    return {"month": month, "removed": removed, "historyRemoved": history_removed}
 
 
 @app.post("/api/migrate-discount-reasons")

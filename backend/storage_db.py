@@ -289,3 +289,13 @@ def append_upload_history(entry):
             "(SELECT id FROM upload_history ORDER BY id DESC LIMIT 500);"
         )
     return read_upload_history()
+
+
+def delete_upload_history_month(month):
+    """Remove every upload-history entry that touched `month` - e.g. after
+    a full delete_month() wipe of that month across every dataset, so the
+    History table doesn't keep showing a month that no longer has any data
+    behind it. Returns how many entries were removed."""
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM upload_history WHERE entry->'months' ? %s;", (month,))
+        return cur.rowcount
