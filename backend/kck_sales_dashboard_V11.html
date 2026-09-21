@@ -1240,18 +1240,29 @@ function fmtDateTime(d){
 }
 const fmtHour = h => (h % 12 === 0 ? 12 : h % 12) + (h < 12 ? " AM" : " PM");
 const isoLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-/* "1 May 2026 to 31 May 2026" is just "May 2026" when the range IS that
-   whole calendar month - shorter and clearer for the common case (a single
-   month's upload), while still showing exact start/end dates for a single
-   day or a partial/multi-month range. Used by "Data Available". */
-/* "Data Available" shows month names only, never exact dates - e.g. data
-   running from 5 Apr to 25 Aug is "Apr 2026 to Aug 2026", not "5 Apr 2026
-   to 25 Aug 2026", regardless of which exact day within either month the
-   data happens to start/end on. */
-function formatDateRangeLabel(from, to){
-  const fromLabel = `${MONTHS[from.getMonth()]} ${from.getFullYear()}`;
-  const toLabel = `${MONTHS[to.getMonth()]} ${to.getFullYear()}`;
-  return fromLabel === toLabel ? fromLabel : `${fromLabel} to ${toLabel}`;
+/* "Data Available" groups the exact set of months that actually have data
+   into contiguous runs, showing month names only (never exact dates) -
+   Apr+May+Jun all present -> "Apr 2026 to Jun 2026", but Apr+Jun with May
+   MISSING -> "Apr 2026, Jun 2026" (two separate runs, comma-joined) rather
+   than a single from/to range that would wrongly imply May has data too. */
+function groupMonthsLabel(monthStrs){
+  if (!monthStrs.length) return "No data available";
+  const keys = [...new Set(monthStrs)].map(s => s.split("-").map(Number)).sort((a,b) => (a[0]-b[0]) || (a[1]-b[1]));
+  const runs = [];
+  keys.forEach(([y,m]) => {
+    const last = runs[runs.length - 1];
+    const isNext = last && (
+      (last.endY === y && last.endM === m - 1) ||
+      (m === 1 && last.endY === y - 1 && last.endM === 12)
+    );
+    if (isNext){ last.endY = y; last.endM = m; }
+    else runs.push({ startY:y, startM:m, endY:y, endM:m });
+  });
+  return runs.map(r => {
+    const start = `${MONTHS[r.startM - 1]} ${r.startY}`;
+    const end = `${MONTHS[r.endM - 1]} ${r.endY}`;
+    return start === end ? start : `${start} to ${end}`;
+  }).join(", ");
 }
 
 /* =====================================================================
@@ -2023,7 +2034,7 @@ function renderAll(){
 const hdrPeriod = document.getElementById("hdrPeriod");
 function updateHeaderMeta(){
   document.getElementById("dataAvailable").textContent = HAS_DATA_RANGE
-    ? formatDateRangeLabel(dayOffset(DAYS_OF_DATA), TODAY)
+    ? groupMonthsLabel(ALL_BILLS.map(r => isoLocal(r.date).slice(0, 7)))
     : "No data available";
   document.getElementById("lastRefreshed").textContent = HAS_LAST_REFRESHED
     ? fmtDateTime(LAST_REFRESHED)
@@ -2814,7 +2825,9 @@ function viewMonthsInDashboard(months){
   // "Data Available" should describe whatever upload's data is now actually
   // on screen, same as the period line above it - otherwise jumping to an
   // older upload via History leaves the two disagreeing with each other.
-  document.getElementById("dataAvailable").textContent = formatDateRangeLabel(from, to);
+  // Grouped the same gap-aware way as the default view, since one upload's
+  // own `months` list can itself be non-contiguous (e.g. Jan + Mar, no Feb).
+  document.getElementById("dataAvailable").textContent = groupMonthsLabel(months);
   closeInputModal();
   closeHistoryModal();
   renderAll();
