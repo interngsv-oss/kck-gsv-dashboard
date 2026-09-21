@@ -515,6 +515,7 @@
   table.heatmap th,table.heatmap td{text-align:center;font-size:12px;padding:0;}
   table.heatmap thead th{color:var(--ink-soft);font-weight:600;padding-bottom:4px;}
   table.heatmap .day-label{text-align:left;padding-right:8px;color:var(--ink);font-weight:700;white-space:nowrap;}
+  .day-holiday-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--brand-red);margin-left:4px;vertical-align:middle;}
   table.heatmap td.cell{height:34px;border-radius:3px;color:var(--ink);font-size:12px;font-weight:500;}
   table.heatmap td.cell.dark{color:#fff;}
   table.heatmap td.cell.empty{color:var(--ink-mute);background:var(--rule-soft);}
@@ -1789,6 +1790,22 @@ function renderReasonChart(){
   document.getElementById("clearReason").classList.toggle("show", tblCancel.isFiltered("reason"));
 }
 
+/* -> {dow(0-6): string[]} of holiday names falling on that weekday within
+   the CURRENT period, for whichever outlet(s) are selected - used to flag a
+   heatmap day-row as "includes a public holiday" even though each row
+   aggregates every occurrence of that weekday across the period, not a
+   single date, so it can't just check one row's own date. */
+function weekdayHolidayNames(){
+  const [s, e] = periodRange();
+  const holidays = holidaysForBranch(state.branch);
+  const byDow = {};
+  for (let t = new Date(s); t <= e; t.setDate(t.getDate()+1)){
+    const names = holidays.get(isoLocal(t));
+    if (names) (byDow[t.getDay()] || (byDow[t.getDay()] = [])).push(...names);
+  }
+  return byDow;
+}
+
 function heatmapHTML(rows, field, color, fmt, lightText, unit){
   const m = DAY_NAMES.map(() => HOURS.map(() => 0));
   rows.forEach(r => m[r.date.getDay()][HOURS.indexOf(r.hour)] += r[field]);
@@ -1796,6 +1813,7 @@ function heatmapHTML(rows, field, color, fmt, lightText, unit){
   m.forEach(row => row.forEach(x => { if (x > max) max = x; if (x > 0 && x < min) min = x; }));
   if (min === Infinity) min = 0;
   const rgb = hexToRgb(color);
+  const holidayNames = weekdayHolidayNames();
   const legend = `<div class="heatmap-legend">
       <div class="legend-bar ${field === "covers" ? "guests" : "sales"}" role="img" aria-label="Colour scale from lower to higher"></div>
       <div class="legend-scale"><span>Lower: <strong>${unit(min)}</strong></span><span>Higher: <strong>${unit(max)}</strong></span></div>
@@ -1804,7 +1822,9 @@ function heatmapHTML(rows, field, color, fmt, lightText, unit){
   HOURS.forEach(h => html += `<th>${fmtHour(h)}</th>`);
   html += "</tr></thead><tbody>";
   [1,2,3,4,5,6,0].forEach(dow => {
-    html += `<tr><td class="day-label">${DAY_NAMES[dow]}</td>`;
+    const hol = holidayNames[dow];
+    const dot = hol ? `<span class="day-holiday-dot" title="Public holiday in this period: ${esc(hol.join(", "))}"></span>` : "";
+    html += `<tr><td class="day-label">${DAY_NAMES[dow]}${dot}</td>`;
     m[dow].forEach((x,i) => {
       const title = `${DAY_NAMES[dow]}, ${fmtHour(HOURS[i])}: ${unit(x)}`;
       if (!x){ html += `<td class="cell empty" title="${title}">–</td>`; return; }
