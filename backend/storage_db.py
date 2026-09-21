@@ -299,3 +299,18 @@ def delete_upload_history_month(month):
     with _conn() as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM upload_history WHERE entry->'months' ? %s;", (month,))
         return cur.rowcount
+
+
+def recompute_last_refreshed():
+    """Reset meta.lastRefreshed to whatever the most recent Upload History
+    entry's own timestamp actually is, rather than trusting whatever an
+    upload most recently set it to - important after
+    delete_upload_history_month() removes entries, since the timestamp an
+    upload set could belong to an entry that no longer exists (e.g. a test
+    upload that was later deleted), leaving "Last Refreshed" pointing at an
+    upload that's gone instead of the real most recent one still on record."""
+    history = read_upload_history()
+    meta = read_meta()
+    meta["lastRefreshed"] = history[-1]["timestamp"] if history else None
+    write_meta(meta)
+    return meta

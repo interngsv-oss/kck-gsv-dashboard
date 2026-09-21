@@ -169,6 +169,21 @@ def delete_upload_history_month(month):
     return removed
 
 
+def recompute_last_refreshed():
+    """Reset meta.lastRefreshed to whatever the most recent Upload History
+    entry's own timestamp actually is, rather than trusting whatever an
+    upload most recently set it to - important after
+    delete_upload_history_month() removes entries, since the timestamp an
+    upload set could belong to an entry that no longer exists (e.g. a test
+    upload that was later deleted), leaving "Last Refreshed" pointing at an
+    upload that's gone instead of the real most recent one still on record."""
+    history = read_upload_history()
+    meta = read_meta()
+    meta["lastRefreshed"] = history[-1]["timestamp"] if history else None
+    write_meta(meta)
+    return meta
+
+
 def bulk_write_upload(datasets_rows, meta, history_extra):
     """Same interface as storage_db.py's version (which batches everything
     into one Postgres connection for real connection-count reasons) - here

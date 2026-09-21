@@ -319,6 +319,13 @@ def delete_month_data(payload: Dict[str, Any]):
     history_removed = 0
     if set(datasets) >= set(EDITABLE_DATASETS):
         history_removed = storage.delete_upload_history_month(month)
+        if history_removed:
+            # The upload that most recently set "Last Refreshed" might be
+            # exactly the entry just removed above - reset it to whichever
+            # upload is now actually the most recent one on record (or
+            # None if history is now empty), instead of leaving it pointing
+            # at data that no longer exists.
+            storage.recompute_last_refreshed()
     return {"month": month, "removed": removed, "historyRemoved": history_removed}
 
 
