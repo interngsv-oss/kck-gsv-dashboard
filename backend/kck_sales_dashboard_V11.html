@@ -163,8 +163,8 @@
      extra header height. */
   .title-row{display:flex;align-items:center;gap:14px;}
   .data-btn-row{display:flex;gap:8px;}
+  .prepared-wrap{justify-self:end;display:flex;align-items:center;gap:10px;}
   .prepared{
-    justify-self:end;
     display:flex;
     flex-direction:column;
     align-items:flex-end;
@@ -177,6 +177,17 @@
   .prepared dt{color:var(--on-dark-soft);}
   .prepared dt::after{content:":";}
   .prepared dd{margin:0;color:var(--on-dark);font-weight:600;white-space:nowrap;}
+  .refresh-btn{
+    flex:none;display:flex;align-items:center;justify-content:center;
+    width:28px;height:28px;padding:0;
+    background:transparent;color:var(--on-dark-soft);
+    border:1px solid var(--brand-line);border-radius:50%;
+    cursor:pointer;
+  }
+  .refresh-btn:hover{border-color:var(--on-dark-soft);color:var(--on-dark);}
+  .refresh-btn svg{width:15px;height:15px;}
+  .refresh-btn.spinning svg{animation:refresh-spin .8s linear infinite;}
+  @keyframes refresh-spin{to{transform:rotate(360deg);}}
 
   .hdr-bottom{
     display:flex;
@@ -416,7 +427,7 @@
     .controls{order:2;}
     /* collapse secondary info once the user scrolls, so the sticky header stays small */
     .site-header.condensed .data-btn-row,
-    .site-header.condensed .prepared,
+    .site-header.condensed .prepared-wrap,
     .site-header.condensed .controls{display:none;}
     .site-header.condensed .hdr-top{padding:8px 0;}
   }
@@ -425,7 +436,8 @@
     .hdr-mid{grid-row:2;align-items:flex-start;text-align:left;}
     .title-row{flex-direction:column;align-items:flex-start;gap:6px;}
     .data-btn-row{justify-content:flex-start;}
-    .prepared{grid-row:3;justify-self:start;align-items:baseline;flex-direction:row;gap:6px;text-align:left;}
+    .prepared-wrap{grid-row:3;justify-self:start;}
+    .prepared{align-items:baseline;flex-direction:row;gap:6px;text-align:left;}
   }
 
   /* ============================ PAGE BODY ============================ */
@@ -833,10 +845,15 @@
         <div class="hdr-outlet" id="hdrOutlet">—</div>
       </div>
 
-      <dl class="prepared">
-        <div><dt>Data Available</dt><dd id="dataAvailable">—</dd></div>
-        <div><dt>Last Refreshed</dt><dd id="lastRefreshed">—</dd></div>
-      </dl>
+      <div class="prepared-wrap">
+        <button class="refresh-btn" id="refreshPageBtn" type="button" title="Reload the dashboard to pick up any data uploaded since this page opened">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M13.5 2.5v3.3h-3.3"/></svg>
+        </button>
+        <dl class="prepared">
+          <div><dt>Data Available</dt><dd id="dataAvailable">—</dd></div>
+          <div><dt>Last Refreshed</dt><dd id="lastRefreshed">—</dd></div>
+        </dl>
+      </div>
     </div>
 
     <div class="hdr-bottom">
@@ -2703,6 +2720,14 @@ function closeInputModal(){
   zipInput.value = "";
   dropZone.classList.remove("drag-over");
 }
+/* A full page reload (not just re-fetching data) so a tab left open from
+   before a deploy also picks up any newer JS/HTML that shipped since it
+   was opened - re-fetching data alone wouldn't fix that, only this does. */
+document.getElementById("refreshPageBtn").addEventListener("click", e => {
+  e.currentTarget.classList.add("spinning");
+  location.reload();
+});
+
 document.getElementById("openInputBtn").addEventListener("click", () => { inputModalOverlay.hidden = false; });
 document.getElementById("inputModalClose").addEventListener("click", closeInputModal);
 document.getElementById("clearFilesBtn").addEventListener("click", clearSelection);
