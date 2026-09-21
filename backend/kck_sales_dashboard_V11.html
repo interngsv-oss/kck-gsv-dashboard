@@ -480,6 +480,7 @@
   .chart-box{padding:16px 20px 16px;}
   .chart-head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px 12px;margin-bottom:8px;}
   .chart-title{font-size:16.5px;color:var(--ink);}
+  .chart-head-note{display:flex;align-items:center;font-size:12px;color:var(--ink-soft);white-space:nowrap;}
   .chart-wrap{position:relative;width:100%;height:230px;}
   .clear-chip{
     display:none;align-items:center;gap:6px;
@@ -1021,7 +1022,7 @@
   <div class="section">
     <h2 class="section-title hd">Busiest Hours For Dine In Sales</h2>
     <div class="panel chart-box">
-      <div class="chart-head"><span class="chart-title hd">Dine In Sales By Day And Hour (Rs. In Thousands)</span></div>
+      <div class="chart-head"><span class="chart-title hd">Dine In Sales By Day And Hour (Rs. In Thousands)</span><span class="chart-head-note"><span class="day-holiday-dot" style="visibility:visible"></span> Public holiday in this period</span></div>
       <div class="heatmap-scroll" id="salesHeatmapWrap"></div>
     </div>
   </div>
@@ -1057,7 +1058,7 @@
   <div class="section">
     <h2 class="section-title hd">Busiest Hours For Guests</h2>
     <div class="panel chart-box">
-      <div class="chart-head"><span class="chart-title hd">Guests By Day And Hour</span></div>
+      <div class="chart-head"><span class="chart-title hd">Guests By Day And Hour</span><span class="chart-head-note"><span class="day-holiday-dot" style="visibility:visible"></span> Public holiday in this period</span></div>
       <div class="heatmap-scroll" id="heatmapWrap"></div>
     </div>
   </div>
@@ -1823,7 +1824,12 @@ function heatmapHTML(rows, field, color, fmt, lightText, unit){
   html += "</tr></thead><tbody>";
   [1,2,3,4,5,6,0].forEach(dow => {
     const hol = holidayNames[dow];
-    const dot = hol ? `<span class="day-holiday-dot" title="Public holiday in this period: ${esc(hol.join(", "))}"></span>` : "";
+    // Always render the dot span (never omit it) - a row without a holiday
+    // still needs the same reserved width, via visibility:hidden rather
+    // than leaving it out entirely, so every day label lines up at the
+    // same x position instead of the ones with a dot shifting right.
+    const dotTitle = hol ? ` title="Public holiday in this period: ${esc(hol.join(", "))}"` : "";
+    const dot = `<span class="day-holiday-dot"${hol ? "" : " style=\"visibility:hidden\""}${dotTitle}></span>`;
     html += `<tr><td class="day-label">${dot}${DAY_NAMES[dow]}</td>`;
     m[dow].forEach((x,i) => {
       const title = `${DAY_NAMES[dow]}, ${fmtHour(HOURS[i])}: ${unit(x)}`;
