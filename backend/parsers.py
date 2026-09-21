@@ -279,7 +279,11 @@ def parse_kot_tracking_report(fp, branch_label):
     but the last one.
     """
     wb = openpyxl.load_workbook(fp, data_only=True, read_only=True)
-    ws = wb["Sheet1"]
+    # Unlike the Payment/Bill-Item/Discount reports, real-world KOT Tracking
+    # Report exports don't reliably name their one data tab "Sheet1" (seen in
+    # production: a KeyError crashing the whole upload) - since this report
+    # always has exactly one sheet, take whichever one is actually there.
+    ws = wb["Sheet1"] if "Sheet1" in wb.sheetnames else wb[wb.sheetnames[0]]
     agg = {}
     cur_date = None
     cur_bill = None

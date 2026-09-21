@@ -19,13 +19,14 @@ Endpoints:
 import os
 import shutil
 import tempfile
+import traceback
 import zipfile
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 import parsers
 
@@ -55,6 +56,28 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    # Without this, an unhandled exception (e.g. a Posist export with a
+    # layout the parser doesn't expect) falls through to Starlette's default
+    # 500 response, which is a PLAIN TEXT "Internal Server Error" body, not
+    # JSON. The frontend's `await res.json()` then throws its own confusing
+    # "Unexpected token 'I', "Internal S"... is not valid JSON" error,
+    # burying the real cause.
+    #
+    # The real exception (with file paths, class names, etc.) is only ever
+    # printed to the server's own log (visible in Render's logs) - it must
+    # NOT be put in the response body, since that's sent straight to
+    # whoever's browser made the request and would leak internals of this
+    # server to them. The client just gets a generic message plus enough of
+    # a fix (retry) to be useful.
+    traceback.print_exc()
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Something went wrong processing that upload. Please try again or contact support."},
+    )
 
 EDITABLE_DATASETS = ("bills", "sales", "discounts", "cancellations")
 

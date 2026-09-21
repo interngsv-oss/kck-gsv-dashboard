@@ -1252,6 +1252,17 @@ function formatDateRangeLabel(from, to){
 const BRANCHES = ["Chennai", "Bengaluru"];
 let REASONS, DISCOUNT_REASONS, SERVICE_TYPES, DATA, SALES_DATA, DISCOUNT_DATA, ALL_BILLS, HOURLY_DATA;
 
+/* Display-only renames for the Overview's "Sales By Service Type" chart/export -
+   the underlying r.serviceType values (and SERVICE_TYPES, which they're matched
+   against in serviceTypeTotals) stay exactly as Posist/storage produce them, so
+   grouping/filtering logic is untouched; only the text shown to the user changes. */
+const SERVICE_TYPE_LABELS = {
+  "Home Delivery": "Zomato/E-commerce",
+  "Takeaway": "Restaurant Takeaway",
+  "Banquets & Catering": "Banquets/ODC",
+};
+const displayServiceType = s => SERVICE_TYPE_LABELS[s] || s;
+
 const dayOffset = d => { const x = new Date(TODAY); x.setDate(x.getDate()-d); return x; };
 
 /* Derives every dataset-dependent global from a DASHBOARD_DATA-shaped object.
@@ -1816,7 +1827,7 @@ function renderOverview(allBills, hourly, disc, cancel, items){
   const st = serviceTypeTotals(allBills), modeVals = SERVICE_TYPES.map(s => Math.round(st[s]));
   upsertChart("modeOfSalesChart", {
     type:"bar",
-    data:{ labels:SERVICE_TYPES, datasets:[{ data:modeVals, backgroundColor:[C.gold, C.orange, C.taupe, C.red], borderRadius:3, maxBarThickness:28 }] },
+    data:{ labels:SERVICE_TYPES.map(displayServiceType), datasets:[{ data:modeVals, backgroundColor:[C.gold, C.orange, C.taupe, C.red], borderRadius:3, maxBarThickness:28 }] },
     options:{ indexAxis:"y", responsive:true, maintainAspectRatio:false,
       plugins:{ legend:{ display:false }, tooltip:{ callbacks:{ label:c => `${rs(c.parsed.x)} (${sales ? Math.round(c.parsed.x/sales*100) : 0}% Of Sales)` } } },
       scales:{ x:valueAxis(true, false, "Sales (Rs.)"), y:nameAxis(false) } }
@@ -2504,7 +2515,7 @@ function buildReportWorkbook(){
     ["Sales By Service Type"],
     ["Service Type", "Sales (Rs.)", "Share Of Sales"]
   ];
-  SERVICE_TYPES.forEach(s => overviewRows.push([s, Math.round(st[s]), sales ? (st[s] / sales * 100).toFixed(1) + "%" : "0.0%"]));
+  SERVICE_TYPES.forEach(s => overviewRows.push([displayServiceType(s), Math.round(st[s]), sales ? (st[s] / sales * 100).toFixed(1) + "%" : "0.0%"]));
 
   return [
     { name:"Overview", rows: overviewRows, boldRows: new Set([0, 11, 12]) },
