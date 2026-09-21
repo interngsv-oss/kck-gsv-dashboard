@@ -169,6 +169,16 @@ def upsert_rows(dataset, rows):
     return result
 
 
+def delete_month(dataset, month):
+    """Wipe every row of `dataset` for exactly `month` ('YYYY-MM'), e.g. so a
+    client can drop a bad month before re-uploading a corrected report,
+    without touching any other month or dataset. Returns the number of rows
+    removed (0 if that month had none)."""
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM rows WHERE dataset = %s AND month = %s;", (dataset, month))
+        return cur.rowcount
+
+
 def delete_row(dataset, key_row):
     key = _row_key(dataset, key_row)
     with _conn() as conn, conn.cursor() as cur:

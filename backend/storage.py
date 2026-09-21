@@ -170,6 +170,18 @@ def delete_row(dataset, key_row):
     return False
 
 
+def delete_month(dataset, month):
+    """Wipe every row of `dataset` for exactly `month` ('YYYY-MM'), e.g. so a
+    client can drop a bad month before re-uploading a corrected report,
+    without touching any other month or dataset. Returns the number of rows
+    removed (0 if that month had none)."""
+    path = _month_file(dataset, month)
+    removed = len(read_month(dataset, month))
+    if os.path.exists(path):
+        os.remove(path)
+    return removed
+
+
 def clear_all():
     """Wipe every uploaded row (all datasets, all months), the upload history
     log, and reset meta.json back to its empty defaults. Irreversible -

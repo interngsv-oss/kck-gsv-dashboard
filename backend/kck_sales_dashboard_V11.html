@@ -392,6 +392,9 @@
   }
   .clear-all-confirm p{margin:0 0 10px;font-size:13px;color:var(--ink);}
   .clear-all-confirm .modal-actions{margin-top:0;}
+  .delete-month-datasets{display:flex;flex-wrap:wrap;gap:12px 20px;margin:0 0 12px;font-size:13px;color:var(--ink);}
+  .delete-month-datasets label{display:flex;align-items:center;gap:6px;cursor:pointer;}
+  .history-actions{display:flex;gap:6px;flex-wrap:wrap;}
 
   @media(max-width:1100px){
     /* company and data-available share the first row; title/period/outlet move to a centred second row */
@@ -934,6 +937,19 @@
         <div class="modal-actions">
           <button class="action-btn ghost" id="clearAllCancelBtn" type="button">Cancel</button>
           <button class="action-btn danger" id="clearAllConfirmBtn" type="button">Yes, delete everything</button>
+        </div>
+      </div>
+      <div id="deleteMonthConfirm" class="clear-all-confirm" hidden>
+        <p id="deleteMonthText"></p>
+        <div class="delete-month-datasets">
+          <label><input type="checkbox" class="dm-ds" value="bills"> Bills</label>
+          <label><input type="checkbox" class="dm-ds" value="sales"> Dish Sales</label>
+          <label><input type="checkbox" class="dm-ds" value="discounts"> Discounts</label>
+          <label><input type="checkbox" class="dm-ds" value="cancellations"> Cancelled KOTs</label>
+        </div>
+        <div class="modal-actions">
+          <button class="action-btn ghost" id="deleteMonthCancelBtn" type="button">Cancel</button>
+          <button class="action-btn danger" id="deleteMonthConfirmBtn" type="button">Delete Selected</button>
         </div>
       </div>
       <div id="historyList" class="table-scroll"></div>
@@ -2762,7 +2778,9 @@ async function refreshUploadHistory(){
         <td class="wrap">${esc(rowsFor(e.discounts))}</td>
         <td class="wrap">${esc(rowsFor(e.cancellations))}</td>
         <td class="wrap soft">${esc((e.missing || []).join(", ") || "—")}</td>
-        <td>${(e.months || []).length ? `<button class="action-btn ghost history-view-btn" type="button" data-idx="${i}">View</button>` : "—"}</td>
+        <td class="history-actions">${(e.months || []).length ? `
+          <button class="action-btn ghost history-view-btn" type="button" data-idx="${i}">View</button>
+          <button class="action-btn danger history-delete-btn" type="button" data-idx="${i}">Delete</button>` : "—"}</td>
       </tr>`).join("");
     historyList.innerHTML = `
       <table class="data history-table">
@@ -2771,6 +2789,9 @@ async function refreshUploadHistory(){
       </table>`;
     historyList.querySelectorAll(".history-view-btn").forEach(btn => {
       btn.addEventListener("click", () => viewMonthsInDashboard(entries[Number(btn.dataset.idx)].months));
+    });
+    historyList.querySelectorAll(".history-delete-btn").forEach(btn => {
+      btn.addEventListener("click", () => openDeleteMonthConfirm(entries[Number(btn.dataset.idx)].months || []));
     });
   } catch (err){
     console.error("Failed to load upload history", err);
@@ -2781,6 +2802,7 @@ async function refreshUploadHistory(){
 document.getElementById("openHistoryBtn").addEventListener("click", () => {
   historyModalOverlay.hidden = false;
   clearAllConfirm.hidden = true;
+  deleteMonthConfirm.hidden = true;
   refreshUploadHistory();
 });
 document.getElementById("historyModalClose").addEventListener("click", closeHistoryModal);
@@ -2801,6 +2823,7 @@ const clearAllCancelBtn = document.getElementById("clearAllCancelBtn");
 const clearAllConfirmBtn = document.getElementById("clearAllConfirmBtn");
 
 clearAllDataBtn.addEventListener("click", () => {
+  deleteMonthConfirm.hidden = true;
   clearAllConfirm.querySelector("p").innerHTML = clearAllConfirmText;
   clearAllConfirm.hidden = false;
 });
@@ -2821,6 +2844,59 @@ clearAllConfirmBtn.addEventListener("click", async () => {
   } finally {
     clearAllConfirmBtn.disabled = false;
     clearAllConfirmBtn.textContent = "Yes, delete everything";
+  }
+});
+
+/* ---- Delete Month: wipes one month's data from just the dataset(s) the
+   client picks (e.g. only Cancelled KOTs for 2026-04), via POST
+   /api/delete-month (see backend/app.py). For when a client's source file
+   changed after they'd already uploaded it and they want the old month's
+   data gone - re-uploading the corrected report would also cleanly replace
+   it, but this lets them clear it out on its own first. Same inline
+   two-step confirm pattern as Clear All Data, scoped to one history row's
+   month(s) instead of everything. ---- */
+const deleteMonthConfirm = document.getElementById("deleteMonthConfirm");
+const deleteMonthText = document.getElementById("deleteMonthText");
+const deleteMonthCancelBtn = document.getElementById("deleteMonthCancelBtn");
+const deleteMonthConfirmBtn = document.getElementById("deleteMonthConfirmBtn");
+let deleteMonthTargets = [];
+
+function openDeleteMonthConfirm(months){
+  clearAllConfirm.hidden = true;
+  deleteMonthTargets = months;
+  deleteMonthText.innerHTML =
+    `<b>Delete data for ${esc(months.join(", "))}</b> - pick which dataset(s) to wipe for ${months.length > 1 ? "these months" : "this month"}. This cannot be undone.`;
+  deleteMonthConfirm.querySelectorAll(".dm-ds").forEach(cb => { cb.checked = false; });
+  deleteMonthConfirm.hidden = false;
+}
+deleteMonthCancelBtn.addEventListener("click", () => { deleteMonthConfirm.hidden = true; });
+deleteMonthConfirmBtn.addEventListener("click", async () => {
+  const datasets = [...deleteMonthConfirm.querySelectorAll(".dm-ds:checked")].map(cb => cb.value);
+  if (!datasets.length){
+    deleteMonthText.innerHTML = `<b>Pick at least one dataset to delete.</b>`;
+    return;
+  }
+  deleteMonthConfirmBtn.disabled = true;
+  deleteMonthConfirmBtn.textContent = "Deleting…";
+  try {
+    for (const month of deleteMonthTargets){
+      const res = await fetch("/api/delete-month", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ month, datasets }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.detail || `Server returned ${res.status}`);
+    }
+    deleteMonthConfirm.hidden = true;
+    await refreshUploadHistory();
+    applyDataset(await loadDashboardData());
+  } catch (err){
+    console.error("Delete month failed", err);
+    deleteMonthText.innerHTML = `<b>Failed to delete:</b> ${esc(err.message)}. Nothing further was deleted - try again.`;
+  } finally {
+    deleteMonthConfirmBtn.disabled = false;
+    deleteMonthConfirmBtn.textContent = "Delete Selected";
   }
 });
 

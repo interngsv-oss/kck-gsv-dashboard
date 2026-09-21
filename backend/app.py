@@ -297,6 +297,31 @@ def clear_all_data():
     return {"cleared": True}
 
 
+@app.post("/api/delete-month")
+def delete_month_data(payload: Dict[str, Any]):
+    """Wipes one month's data from just the chosen dataset(s) (e.g. only
+    Cancelled KOTs for 2026-04), so a client can drop a bad month before
+    re-uploading a corrected report without wiping everything else. NOTE:
+    like the rest of this app's login gate, there's no real server-side
+    auth - this just isn't wired into the admin-only UI for a viewer session.
+    Must stay registered before POST /api/{dataset} below, same reasoning as
+    POST /api/upload."""
+    month = payload.get("month")
+    datasets = payload.get("datasets") or []
+    if not month:
+        raise HTTPException(400, "Missing 'month' (expected 'YYYY-MM').")
+    unknown = [d for d in datasets if d not in EDITABLE_DATASETS]
+    if unknown:
+        raise HTTPException(400, f"Unknown dataset(s): {unknown}. Must be one of {EDITABLE_DATASETS}.")
+    if not datasets:
+        raise HTTPException(400, "No datasets selected to delete.")
+
+    removed = {d: storage.delete_month(d, month) for d in datasets}
+    if "bills" in datasets:
+        storage.recompute_meta_dates()
+    return {"month": month, "removed": removed}
+
+
 @app.post("/api/{dataset}")
 def create_row(dataset: str, row: Dict[str, Any]):
     _require_dataset(dataset)
