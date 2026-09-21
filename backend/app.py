@@ -322,6 +322,30 @@ def delete_month_data(payload: Dict[str, Any]):
     return {"month": month, "removed": removed}
 
 
+@app.post("/api/migrate-discount-reasons")
+def migrate_discount_reasons():
+    """One-time fix-up for discount rows uploaded before "reason" switched
+    from a Discount-Type classification to parsers.discount_reason_from_remark
+    (Remarks-based): recomputes "reason" for every already-stored discount
+    row from its own already-stored "remarks" field (no original Excel
+    files needed) and replaces meta.discountReasons with the fresh set, so
+    existing months' charts catch up without anyone re-uploading anything.
+    Idempotent - safe to call more than once. NOTE: like the rest of this
+    app's login gate, there's no real server-side auth - this just isn't
+    wired into the admin-only UI for a viewer session. Must stay registered
+    before POST /api/{dataset} below, same reasoning as POST /api/upload."""
+    rows = storage.read_range("discounts")
+    for row in rows:
+        row["reason"] = parsers.discount_reason_from_remark(row.get("remarks"))
+    storage.replace_months("discounts", rows)
+
+    reasons = sorted({row["reason"] for row in rows})
+    meta = storage.read_meta()
+    meta["discountReasons"] = reasons
+    storage.write_meta(meta)
+    return {"updated": len(rows), "reasons": reasons}
+
+
 @app.post("/api/{dataset}")
 def create_row(dataset: str, row: Dict[str, Any]):
     _require_dataset(dataset)

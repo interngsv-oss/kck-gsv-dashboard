@@ -173,7 +173,7 @@ def parse_bill_item_report(fp, branch_label):
     return sales
 
 
-def _discount_reason_from_remark(remarks):
+def discount_reason_from_remark(remarks):
     """The "Reasons For Discount" chart groups by the discount's own
     free-text Remarks cell (who authorized it / for whom, e.g. 'Augustine
     Sir') rather than the system's fixed Discount Type field, since that's
@@ -222,7 +222,7 @@ def parse_discount_report(fp, branch_label, bill_totals):
             "discountValue": round(disc_amt, 2),
             "net": net,
             "isFull": is_foc,
-            "reason": _discount_reason_from_remark(row[9]),
+            "reason": discount_reason_from_remark(row[9]),
             "type": row[6],
             "remarks": row[9],
         })
