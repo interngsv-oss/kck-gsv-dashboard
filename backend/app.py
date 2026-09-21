@@ -244,14 +244,6 @@ async def upload_export(files: List[UploadFile] = File(...)):
     # for anyone not in UTC. With the "Z", the browser correctly converts it
     # to whatever timezone the viewer is actually in.
     meta["lastRefreshed"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    # "Data Available" tracks exactly what THIS upload's own rows span (e.g. if
-    # the report only has rows for 1-25 June, this shows "1 Jun to 25 Jun") -
-    # not the full history still sitting in storage for other months, so it
-    # always reflects what was just uploaded rather than everything ever kept.
-    if bills:
-        upload_dates = [b["date"] for b in bills]
-        meta["dataStart"] = min(upload_dates)
-        meta["dataEnd"] = max(upload_dates)
 
     # bulk_write_upload (not 4x replace_months + write_meta + append_upload_
     # history separately) so this only takes 2 database connections total
@@ -268,6 +260,13 @@ async def upload_export(files: List[UploadFile] = File(...)):
         meta,
         {"files": [f.filename for f in files if f.filename], "missing": missing_sections},
     )
+
+    # "Data Available" spans every month EVER uploaded, not just this one -
+    # e.g. upload June, then later May, then later July -> "May 2026 to Jul
+    # 2026", not just whichever month was uploaded most recently. Recomputed
+    # from what's now actually in storage (this upload's rows plus every
+    # earlier one still there), after the write above so it sees the result.
+    storage.recompute_meta_dates()
 
     return {
         "bills": results["bills"],

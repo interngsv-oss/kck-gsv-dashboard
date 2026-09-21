@@ -1312,10 +1312,11 @@ function applyDashboardData(raw){
     : 30;
 
   /* The custom-date-range calendar needs to navigate across EVERY month that
-     actually has data (e.g. June and July both stored), not just the most
-     recent upload's range - meta.dataStart/dataEnd only describe the latest
-     upload (by design, for the "Data Available" label), so derive the
-     calendar's true min/max directly from the bills actually loaded. */
+     actually has data (e.g. June and July both stored) - meta.dataStart/
+     dataEnd already span everything ever uploaded too (see backend/app.py's
+     recompute_meta_dates() call after each upload), but deriving the
+     calendar's min/max directly from the bills actually loaded avoids
+     depending on that round-tripping exactly. */
   if (ALL_BILLS.length){
     const times = ALL_BILLS.map(r => r.date.getTime());
     DATA_MIN_DATE = new Date(Math.min(...times));
