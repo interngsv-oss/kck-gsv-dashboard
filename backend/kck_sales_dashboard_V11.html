@@ -515,7 +515,7 @@
   table.heatmap th,table.heatmap td{text-align:center;font-size:12px;padding:0;}
   table.heatmap thead th{color:var(--ink-soft);font-weight:600;padding-bottom:4px;}
   table.heatmap .day-label{text-align:left;padding-right:8px;color:var(--ink);font-weight:700;white-space:nowrap;}
-  .day-holiday-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--brand-red);margin-left:4px;vertical-align:middle;}
+  .day-holiday-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--brand-red);margin-right:4px;vertical-align:middle;}
   table.heatmap td.cell{height:34px;border-radius:3px;color:var(--ink);font-size:12px;font-weight:500;}
   table.heatmap td.cell.dark{color:#fff;}
   table.heatmap td.cell.empty{color:var(--ink-mute);background:var(--rule-soft);}
@@ -1824,7 +1824,7 @@ function heatmapHTML(rows, field, color, fmt, lightText, unit){
   [1,2,3,4,5,6,0].forEach(dow => {
     const hol = holidayNames[dow];
     const dot = hol ? `<span class="day-holiday-dot" title="Public holiday in this period: ${esc(hol.join(", "))}"></span>` : "";
-    html += `<tr><td class="day-label">${DAY_NAMES[dow]}${dot}</td>`;
+    html += `<tr><td class="day-label">${dot}${DAY_NAMES[dow]}</td>`;
     m[dow].forEach((x,i) => {
       const title = `${DAY_NAMES[dow]}, ${fmtHour(HOURS[i])}: ${unit(x)}`;
       if (!x){ html += `<td class="cell empty" title="${title}">–</td>`; return; }
