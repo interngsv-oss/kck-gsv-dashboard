@@ -480,7 +480,6 @@
   .chart-box{padding:16px 20px 16px;}
   .chart-head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px 12px;margin-bottom:8px;}
   .chart-title{font-size:16.5px;color:var(--ink);}
-  .chart-head-note{display:flex;align-items:center;font-size:12px;color:var(--ink-soft);white-space:nowrap;}
   .chart-wrap{position:relative;width:100%;height:230px;}
   .clear-chip{
     display:none;align-items:center;gap:6px;
@@ -521,6 +520,7 @@
   table.heatmap td.cell.dark{color:#fff;}
   table.heatmap td.cell.empty{color:var(--ink-mute);background:var(--rule-soft);}
   .heatmap-legend{min-width:814px;margin:0 3px 14px;}
+  .heatmap-holiday-note{display:flex;justify-content:flex-end;align-items:center;gap:6px;font-size:12px;color:var(--ink-soft);margin-bottom:6px;}
   .legend-bar{height:12px;border-radius:6px;width:100%;}
   .legend-bar.guests{background:linear-gradient(to right, rgba(210,94,29,.14), rgba(210,94,29,.95));}
   .legend-bar.sales{background:linear-gradient(to right, rgba(228,182,51,.14), rgba(228,182,51,.95));}
@@ -670,7 +670,9 @@
   .footer-note{
     position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
     color:var(--on-dark-soft);font-size:12.5px;white-space:nowrap;
+    display:flex;align-items:center;gap:6px;
   }
+  .footer-note-icon{width:14px;height:14px;flex:none;}
   @media(max-width:700px){.footer-note{display:none;}}
   @media(max-width:700px){.footer-logout{position:static;transform:none;margin-bottom:8px;}
     .site-footer{flex-direction:column;}}
@@ -1022,7 +1024,7 @@
   <div class="section">
     <h2 class="section-title hd">Busiest Hours For Dine In Sales</h2>
     <div class="panel chart-box">
-      <div class="chart-head"><span class="chart-title hd">Dine In Sales By Day And Hour (Rs. In Thousands)</span><span class="chart-head-note"><span class="day-holiday-dot" style="visibility:visible"></span> Public holiday in this period</span></div>
+      <div class="chart-head"><span class="chart-title hd">Dine In Sales By Day And Hour (Rs. In Thousands)</span></div>
       <div class="heatmap-scroll" id="salesHeatmapWrap"></div>
     </div>
   </div>
@@ -1058,7 +1060,7 @@
   <div class="section">
     <h2 class="section-title hd">Busiest Hours For Guests</h2>
     <div class="panel chart-box">
-      <div class="chart-head"><span class="chart-title hd">Guests By Day And Hour</span><span class="chart-head-note"><span class="day-holiday-dot" style="visibility:visible"></span> Public holiday in this period</span></div>
+      <div class="chart-head"><span class="chart-title hd">Guests By Day And Hour</span></div>
       <div class="heatmap-scroll" id="heatmapWrap"></div>
     </div>
   </div>
@@ -1159,7 +1161,7 @@
 
 <footer class="site-footer">
   <button class="footer-logout hd" id="logoutBtn" type="button">Log Out</button>
-  <span class="footer-note hd">Dashboard data is based on reports curated from Posist.</span>
+  <span class="footer-note hd"><svg class="footer-note-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="11" x2="12" y2="16"></line><circle cx="12" cy="7.5" r="0.9" fill="currentColor" stroke="none"></circle></svg>Dashboard data is based on reports curated from Posist.</span>
   <a class="footer-credit hd" href="https://gsvassociates.com/" target="_blank" rel="noopener">
     <span class="pf-label">Powered By</span>
     <span class="pf-firm">GSV Associates LLP</span>
@@ -1815,7 +1817,12 @@ function heatmapHTML(rows, field, color, fmt, lightText, unit){
   if (min === Infinity) min = 0;
   const rgb = hexToRgb(color);
   const holidayNames = weekdayHolidayNames();
+  const anyHoliday = Object.keys(holidayNames).length > 0;
+  const holidayNote = anyHoliday
+    ? `<div class="heatmap-holiday-note"><span class="day-holiday-dot" style="visibility:visible"></span>Public holiday (${esc(outletLabel())})</div>`
+    : "";
   const legend = `<div class="heatmap-legend">
+      ${holidayNote}
       <div class="legend-bar ${field === "covers" ? "guests" : "sales"}" role="img" aria-label="Colour scale from lower to higher"></div>
       <div class="legend-scale"><span>Lower: <strong>${unit(min)}</strong></span><span>Higher: <strong>${unit(max)}</strong></span></div>
     </div>`;
@@ -2704,17 +2711,58 @@ dropZone.addEventListener("drop", async e => {
   addSelectedEntries(await getEntriesFromDataTransfer(e.dataTransfer));
 });
 
+/* A free-tier/serverless backend (Render app + Neon DB) that's been idle can
+   take 30-60s+ to wake up on the very first request after a while - long
+   enough that the platform's own gateway sometimes kills the request and
+   returns an HTML error page instead of ever reaching our app, which shows
+   up here as a non-JSON response (or the fetch itself failing outright).
+   Retrying a couple of times with a short delay absorbs that wake-up
+   window instead of failing the upload over it. A real 4xx from the server
+   (bad zip, missing files, etc.) is NOT retried - retrying wouldn't fix it. */
+async function attemptUpload(form){
+  let res;
+  try {
+    res = await fetch("/api/upload", { method:"POST", body:form });
+  } catch (networkErr){
+    networkErr.transient = true;
+    throw networkErr;
+  }
+  let body;
+  try { body = await res.json(); }
+  catch {
+    const err = new Error(`Server returned ${res.status} with a non-JSON response - it may still be waking up`);
+    err.transient = true;
+    throw err;
+  }
+  if (!res.ok){
+    const err = new Error(body.detail || `Server returned ${res.status}`);
+    err.transient = res.status >= 500;
+    throw err;
+  }
+  return body;
+}
+
 uploadBtn.addEventListener("click", async () => {
   if (!selectedEntries.length) return;
   uploadBtn.disabled = true;
-  inputStatus.textContent = "Uploading and parsing…";
   inputPreview.hidden = true;
   const form = new FormData();
   selectedEntries.forEach(e => form.append("files", e.file, e.relativePath));
+  const MAX_ATTEMPTS = 3;
   try {
-    const res = await fetch("/api/upload", { method:"POST", body:form });
-    const body = await res.json();
-    if (!res.ok) throw new Error(body.detail || `Server returned ${res.status}`);
+    let body;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++){
+      inputStatus.textContent = attempt === 1
+        ? "Uploading and parsing…"
+        : `Server seems to be waking up - retrying (${attempt}/${MAX_ATTEMPTS})…`;
+      try {
+        body = await attemptUpload(form);
+        break;
+      } catch (err){
+        if (!err.transient || attempt === MAX_ATTEMPTS) throw err;
+        await new Promise(r => setTimeout(r, 4000));
+      }
+    }
     const fmt = (label, r) => `<div><b>${esc(label)}:</b> ${Object.entries(r).map(([m, c]) => `${m} replaced with ${num(c.added)} row${c.added === 1 ? "" : "s"}`).join(", ") || "no rows"}</div>`;
     const missingNote = (body.missing || []).length
       ? `<div class="gate-error" style="margin-top:8px;">Not found in this upload (marked as no data available): ${esc(body.missing.join(", "))}</div>`

@@ -11,6 +11,7 @@ without DATABASE_URL, app.py keeps using the original storage.py.
 
 import os
 import json
+import time
 from collections import defaultdict
 from contextlib import contextmanager
 
@@ -18,6 +19,8 @@ import psycopg2
 from psycopg2.extras import execute_values
 
 DATABASE_URL = os.environ["DATABASE_URL"]
+_CONNECT_RETRIES = 3
+_CONNECT_RETRY_DELAY = 2  # seconds
 
 KEY_FIELDS = {
     "bills": ("branch", "bill", "date"),
@@ -35,7 +38,22 @@ DEFAULT_META = {
 
 @contextmanager
 def _conn():
-    conn = psycopg2.connect(DATABASE_URL)
+    """A free-tier/serverless Postgres (e.g. Neon) suspends when idle and
+    can take a few seconds to wake up on the first connection after a
+    while - which previously surfaced as a raw connection error on whatever
+    request happened to hit it first (including uploads), caught by app.py's
+    catch-all handler and shown as a generic "Something went wrong".
+    Retrying just the CONNECT a few times with a short delay absorbs that
+    wake-up window instead of failing the caller's request over it."""
+    conn = None
+    for attempt in range(_CONNECT_RETRIES):
+        try:
+            conn = psycopg2.connect(DATABASE_URL)
+            break
+        except psycopg2.OperationalError:
+            if attempt == _CONNECT_RETRIES - 1:
+                raise
+            time.sleep(_CONNECT_RETRY_DELAY)
     try:
         yield conn
         conn.commit()
