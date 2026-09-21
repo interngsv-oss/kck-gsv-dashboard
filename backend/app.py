@@ -233,15 +233,6 @@ async def upload_export(files: List[UploadFile] = File(...)):
         except FileNotFoundError as e:
             raise HTTPException(400, str(e))
 
-    # replace_months (not upsert_rows) so re-uploading a month's report
-    # cleanly supersedes whatever was previously stored for that month,
-    # instead of merging with stale rows the new report no longer contains.
-    # Months not present in this upload are left untouched.
-    bills_result = storage.replace_months("bills", bills)
-    sales_result = storage.replace_months("sales", sales)
-    discounts_result = storage.replace_months("discounts", discounts)
-    cancellations_result = storage.replace_months("cancellations", cancellations)
-
     discount_reasons = sorted({d["reason"] for d in discounts}) if discounts else None
     meta = storage.read_meta()
     if discount_reasons:
@@ -261,27 +252,28 @@ async def upload_export(files: List[UploadFile] = File(...)):
         upload_dates = [b["date"] for b in bills]
         meta["dataStart"] = min(upload_dates)
         meta["dataEnd"] = max(upload_dates)
-    storage.write_meta(meta)
 
-    months_touched = sorted(
-        set(bills_result) | set(sales_result) | set(discounts_result) | set(cancellations_result)
+    # bulk_write_upload (not 4x replace_months + write_meta + append_upload_
+    # history separately) so this only takes 2 database connections total
+    # (the read_meta above, plus this) instead of up to 6 - each fresh
+    # connection to a serverless/free-tier Postgres instance adds real,
+    # avoidable latency, and that was a meaningful chunk of why uploads were
+    # slow. replace_months (not upsert_rows) semantics still apply: re-
+    # uploading a month's report cleanly supersedes whatever was previously
+    # stored for that month rather than merging with stale rows the new
+    # report no longer contains; months not present in this upload are left
+    # untouched.
+    results = storage.bulk_write_upload(
+        {"bills": bills, "sales": sales, "discounts": discounts, "cancellations": cancellations},
+        meta,
+        {"files": [f.filename for f in files if f.filename], "missing": missing_sections},
     )
-    storage.append_upload_history({
-        "timestamp": meta["lastRefreshed"],
-        "files": [f.filename for f in files if f.filename],
-        "months": months_touched,
-        "bills": bills_result,
-        "sales": sales_result,
-        "discounts": discounts_result,
-        "cancellations": cancellations_result,
-        "missing": missing_sections,
-    })
 
     return {
-        "bills": bills_result,
-        "sales": sales_result,
-        "discounts": discounts_result,
-        "cancellations": cancellations_result,
+        "bills": results["bills"],
+        "sales": results["sales"],
+        "discounts": results["discounts"],
+        "cancellations": results["cancellations"],
         "missing": missing_sections,
     }
 

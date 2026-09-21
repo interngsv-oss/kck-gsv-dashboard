@@ -157,6 +157,32 @@ def append_upload_history(entry):
     return history
 
 
+def bulk_write_upload(datasets_rows, meta, history_extra):
+    """Same interface as storage_db.py's version (which batches everything
+    into one Postgres connection for real connection-count reasons) - here
+    it's just a thin wrapper, since local file I/O has no per-call
+    connection overhead worth batching away.
+
+    datasets_rows: {"bills": [...], "sales": [...], "discounts": [...], "cancellations": [...]}
+    meta: the full meta dict to write.
+    history_extra: {"files": [...], "missing": [...]}.
+    Returns {dataset: {month: {"added": n, "updated": 0}}}."""
+    results = {ds: replace_months(ds, rows) for ds, rows in datasets_rows.items()}
+    write_meta(meta)
+    months_touched = sorted({m for r in results.values() for m in r})
+    append_upload_history({
+        "timestamp": meta["lastRefreshed"],
+        "files": history_extra["files"],
+        "months": months_touched,
+        "bills": results["bills"],
+        "sales": results["sales"],
+        "discounts": results["discounts"],
+        "cancellations": results["cancellations"],
+        "missing": history_extra["missing"],
+    })
+    return results
+
+
 def delete_row(dataset, key_row):
     """Delete the row matching key_row's key fields, wherever its month file
     is. Returns True if a row was deleted, False if no match was found."""

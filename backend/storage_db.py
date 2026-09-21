@@ -106,37 +106,86 @@ def read_range(dataset, from_month=None, to_month=None):
         return [r[0] for r in cur.fetchall()]
 
 
-def replace_months(dataset, rows):
-    """See storage.py's replace_months docstring - same replace-the-whole-
-    month semantics, just against Postgres instead of a JSON file."""
+def _replace_months_with_cursor(cur, dataset, rows):
+    """Core of replace_months, run against an already-open cursor so a
+    caller juggling several datasets in one request (bulk_write_upload) can
+    do it all in a single connection/transaction instead of reconnecting
+    once per dataset."""
     by_month = defaultdict(list)
     for row in rows:
         by_month[_month_key(row["date"])].append(row)
 
-    # execute_values sends every row in ONE round trip per month (instead of
-    # one round trip per row) - the difference between an upload of a few
-    # thousand rows taking seconds vs. minutes over the network to Postgres.
     result = {}
-    with _conn() as conn, conn.cursor() as cur:
-        for month, new_rows in by_month.items():
-            cur.execute("DELETE FROM rows WHERE dataset = %s AND month = %s;", (dataset, month))
-            deduped = {}
-            for row in new_rows:
-                deduped[_row_key(dataset, row)] = row
-            if deduped:
-                values = [(dataset, month, key, json.dumps(row)) for key, row in deduped.items()]
-                # page_size = the whole batch: one round trip total instead of
-                # execute_values' default of one round trip per 100 rows -
-                # network latency to Postgres, not row count, is what
-                # dominates upload time here.
-                execute_values(
-                    cur,
-                    "INSERT INTO rows (dataset, month, row_key, data) VALUES %s",
-                    values,
-                    page_size=len(values),
-                )
-            result[month] = {"added": len(deduped), "updated": 0}
+    for month, new_rows in by_month.items():
+        cur.execute("DELETE FROM rows WHERE dataset = %s AND month = %s;", (dataset, month))
+        deduped = {}
+        for row in new_rows:
+            deduped[_row_key(dataset, row)] = row
+        if deduped:
+            values = [(dataset, month, key, json.dumps(row)) for key, row in deduped.items()]
+            # page_size = the whole batch: one round trip total instead of
+            # execute_values' default of one round trip per 100 rows -
+            # network latency to Postgres, not row count, is what
+            # dominates upload time here.
+            execute_values(
+                cur,
+                "INSERT INTO rows (dataset, month, row_key, data) VALUES %s",
+                values,
+                page_size=len(values),
+            )
+        result[month] = {"added": len(deduped), "updated": 0}
     return result
+
+
+def replace_months(dataset, rows):
+    """See storage.py's replace_months docstring - same replace-the-whole-
+    month semantics, just against Postgres instead of a JSON file."""
+    with _conn() as conn, conn.cursor() as cur:
+        return _replace_months_with_cursor(cur, dataset, rows)
+
+
+def bulk_write_upload(datasets_rows, meta, history_extra):
+    """Everything POST /api/upload needs to write, in ONE database
+    connection/transaction instead of one connection per call - previously
+    4x replace_months + read_meta + write_meta + append_upload_history meant
+    up to 7 separate connections per upload, and each fresh connection to a
+    serverless/free-tier Postgres instance adds real, avoidable latency
+    (connect + TLS handshake + possible cold-start) on top of the query
+    itself. That was a meaningful chunk of why uploads were slow.
+
+    datasets_rows: {"bills": [...], "sales": [...], "discounts": [...], "cancellations": [...]}
+    meta: the full meta dict to write (caller has already merged in
+        discountReasons/lastRefreshed/dataStart/dataEnd)
+    history_extra: {"files": [...], "missing": [...]} - the upload-history
+        entry's fields besides "timestamp" and the per-dataset month
+        results, both computed here.
+    Returns {dataset: {month: {"added": n, "updated": 0}}}."""
+    with _conn() as conn, conn.cursor() as cur:
+        results = {ds: _replace_months_with_cursor(cur, ds, rows) for ds, rows in datasets_rows.items()}
+
+        cur.execute(
+            "INSERT INTO meta (id, data) VALUES (1, %s) "
+            "ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data;",
+            (json.dumps(meta),),
+        )
+
+        months_touched = sorted({m for r in results.values() for m in r})
+        history_entry = {
+            "timestamp": meta["lastRefreshed"],
+            "files": history_extra["files"],
+            "months": months_touched,
+            "bills": results["bills"],
+            "sales": results["sales"],
+            "discounts": results["discounts"],
+            "cancellations": results["cancellations"],
+            "missing": history_extra["missing"],
+        }
+        cur.execute("INSERT INTO upload_history (entry) VALUES (%s);", (json.dumps(history_entry),))
+        cur.execute(
+            "DELETE FROM upload_history WHERE id NOT IN "
+            "(SELECT id FROM upload_history ORDER BY id DESC LIMIT 500);"
+        )
+    return results
 
 
 def upsert_rows(dataset, rows):
