@@ -2794,7 +2794,11 @@ uploadBtn.addEventListener("click", async () => {
   inputPreview.hidden = true;
   const form = new FormData();
   selectedEntries.forEach(e => form.append("files", e.file, e.relativePath));
-  const MAX_ATTEMPTS = 3;
+  // 6 attempts x 6s between them (~30s of retry buffer, on top of each
+  // attempt's own time) - seen in practice needing more than the original
+  // 3 attempts x 4s covered, since a cold Render instance plus a cold
+  // Postgres waking up together can take longer than that to settle.
+  const MAX_ATTEMPTS = 6;
   try {
     let body;
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++){
@@ -2806,7 +2810,7 @@ uploadBtn.addEventListener("click", async () => {
         break;
       } catch (err){
         if (!err.transient || attempt === MAX_ATTEMPTS) throw err;
-        await new Promise(r => setTimeout(r, 4000));
+        await new Promise(r => setTimeout(r, 6000));
       }
     }
     const fmt = (label, r) => `<div><b>${esc(label)}:</b> ${Object.entries(r).map(([m, c]) => `${m} replaced with ${num(c.added)} row${c.added === 1 ? "" : "s"}`).join(", ") || "no rows"}</div>`;
