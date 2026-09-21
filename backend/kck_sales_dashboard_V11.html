@@ -664,6 +664,12 @@
     cursor:pointer;
   }
   .footer-logout:hover{border-color:var(--on-dark-soft);color:var(--on-dark);}
+
+  .footer-note{
+    position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    color:var(--on-dark-soft);font-size:12.5px;white-space:nowrap;
+  }
+  @media(max-width:900px){.footer-note{display:none;}}
   @media(max-width:700px){.footer-logout{position:static;transform:none;margin-bottom:8px;}
     .site-footer{flex-direction:column;}}
 
@@ -1168,6 +1174,7 @@
 
 <footer class="site-footer">
   <button class="footer-logout hd" id="logoutBtn" type="button">Log Out</button>
+  <span class="footer-note hd">Dashboard data is based on reports curated from Posist.</span>
   <a class="footer-credit hd" href="https://gsvassociates.com/" target="_blank" rel="noopener">
     <span class="pf-label">Powered By</span>
     <span class="pf-firm">GSV Associates LLP</span>
