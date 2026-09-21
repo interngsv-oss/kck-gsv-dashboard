@@ -118,6 +118,12 @@ def parse_payment_report(fp, branch_label):
         bill_totals[str(bill_no).strip()] = float(total_amount)
         if row_date is None or hour is None:
             continue
+        if net_sales == 0:
+            # A zero Net Sales row isn't a real bill for counting/analysis
+            # purposes (e.g. Number Of Bills, Guests By Hour) - only
+            # bill_totals above still records it, so a discount referencing
+            # this bill number can still be matched to it.
+            continue
         bills.append({
             "date": row_date,
             "hour": hour,

@@ -346,6 +346,30 @@ def migrate_discount_reasons():
     return {"updated": len(rows), "reasons": reasons}
 
 
+@app.post("/api/migrate-zero-sales-bills")
+def migrate_zero_sales_bills():
+    """One-time fix-up for bills uploaded before parse_payment_report started
+    excluding zero-Net-Sales rows from counting as a bill at all (Number Of
+    Bills, Guests By Hour, etc. all derive from this same stored list):
+    drops every already-stored bill with salesValue == 0. Explicitly clears
+    every month first (not just the ones with rows left over) so a month
+    that turns out to have had ONLY zero-sales rows is actually emptied,
+    not left with its stale zero-sales rows untouched. Idempotent - safe to
+    call more than once. NOTE: like the rest of this app's login gate,
+    there's no real server-side auth - this just isn't wired into the
+    admin-only UI for a viewer session. Must stay registered before POST
+    /api/{dataset} below, same reasoning as POST /api/upload."""
+    all_rows = storage.read_range("bills")
+    kept = [r for r in all_rows if r.get("salesValue") != 0]
+
+    months = sorted({r["date"][:7] for r in all_rows})
+    for month in months:
+        storage.delete_month("bills", month)
+    storage.replace_months("bills", kept)
+    storage.recompute_meta_dates()
+    return {"kept": len(kept), "removed": len(all_rows) - len(kept)}
+
+
 @app.post("/api/{dataset}")
 def create_row(dataset: str, row: Dict[str, Any]):
     _require_dataset(dataset)
