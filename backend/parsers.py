@@ -173,17 +173,18 @@ def parse_bill_item_report(fp, branch_label):
     return sales
 
 
-def _classify_discount(description, is_foc):
-    desc = (description or "").strip()
-    if desc == "-" or desc == "":
+def _discount_reason_from_remark(remarks):
+    """The "Reasons For Discount" chart groups by the discount's own
+    free-text Remarks cell (who authorized it / for whom, e.g. 'Augustine
+    Sir') rather than the system's fixed Discount Type field, since that's
+    what actually explains the discount here. Remarks are typed by hand, so
+    grouping is case/whitespace-insensitive (via _clean_name + uppercasing)
+    so the same person/reason typed inconsistently doesn't fragment into
+    separate bars."""
+    r = _clean_name(remarks) if remarks else None
+    if not r or r == "-":
         return "Not Specified"
-    if desc.lower().startswith("express offer(100%)"):
-        return "Express Offer (100%)"
-    if desc.lower().startswith("express"):
-        return "Express Offer (Other)"
-    if "zomato" in desc.lower():
-        return "Zomato Merchant Discount"
-    return "Not Specified"
+    return r.upper()
 
 
 def _discount_date(value):
@@ -221,7 +222,7 @@ def parse_discount_report(fp, branch_label, bill_totals):
             "discountValue": round(disc_amt, 2),
             "net": net,
             "isFull": is_foc,
-            "reason": _classify_discount(row[6], is_foc),
+            "reason": _discount_reason_from_remark(row[9]),
             "type": row[6],
             "remarks": row[9],
         })
