@@ -1868,7 +1868,15 @@ function renderOverview(allBills, hourly, disc, cancel, items){
     type:"bar",
     data:{ labels:SERVICE_TYPES.map(displayServiceType), datasets:[{ data:modeVals, backgroundColor:[C.gold, C.orange, C.taupe, C.red], borderRadius:3, maxBarThickness:28 }] },
     options:{ indexAxis:"y", responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{ display:false }, tooltip:{ callbacks:{ label:c => `${rs(c.parsed.x)} (${sales ? Math.round(c.parsed.x/sales*100) : 0}% Of Sales)` } } },
+      // % is computed from the chart's OWN current data (not the outer `sales`
+      // closed over at chart-creation time) - upsertChart only replaces the
+      // data array on later re-renders (e.g. switching outlet), never this
+      // callback, so a closed-over total would keep showing whatever outlet
+      // was selected when the chart was first created instead of the current one.
+      plugins:{ legend:{ display:false }, tooltip:{ callbacks:{ label:c => {
+        const total = c.chart.data.datasets[0].data.reduce((a,b) => a+b, 0);
+        return `${rs(c.parsed.x)} (${total ? Math.round(c.parsed.x/total*100) : 0}% Of Sales)`;
+      } } } },
       scales:{ x:valueAxis(true, false, "Sales (Rs.)"), y:nameAxis(false) } }
   }, ch => { ch.data.datasets[0].data = modeVals; });
 
