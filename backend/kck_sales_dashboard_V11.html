@@ -1993,8 +1993,20 @@ function renderItems(items){
 }
 
 function renderDiscounts(disc){
-  document.getElementById("statDiscFull").textContent = num(disc.filter(r => r.isFull).length);
-  document.getElementById("statDiscPartial").textContent = num(disc.filter(r => !r.isFull).length);
+  // A bill can have more than one discount line (one row per line item) -
+  // these two figures count BILLS, not lines, so a multi-line bill must only
+  // be counted once here (grouped by branch+bill+date, matching how a single
+  // bill's lines all share those three fields). A bill counts as "Fully
+  // Complimentary" only when every one of its lines was FOC; any line that
+  // wasn't makes the whole bill "Partly Discounted".
+  const billMap = new Map();
+  disc.forEach(r => {
+    const k = `${r.branch}|${r.bill}|${r.date}`;
+    billMap.set(k, billMap.has(k) ? billMap.get(k) && r.isFull : r.isFull);
+  });
+  const billFlags = [...billMap.values()];
+  document.getElementById("statDiscFull").textContent = num(billFlags.filter(Boolean).length);
+  document.getElementById("statDiscPartial").textContent = num(billFlags.filter(f => !f).length);
   document.getElementById("statDiscValue").textContent = rs(disc.reduce((s,r) => s + r.discountValue, 0));
   const t = discountTotals(disc), vals = DISCOUNT_REASONS.map(l => t[l]);
   upsertChart("discountReasonChart", {

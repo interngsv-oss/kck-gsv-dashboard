@@ -95,10 +95,22 @@ def _service_type(tab_name, tab_type):
 
 
 def parse_payment_report(fp, branch_label):
-    """-> (allBills rows, {bill_no: total_amount}) for discount join."""
+    """-> (allBills rows, {bill_no: total_amount}) for discount join.
+
+    The same bill number can appear on more than one row here (e.g. a group
+    split across two physical tables under one bill) - if that weren't
+    handled, only whichever row happened to survive storage's per-bill dedup
+    would count, silently under-reporting that bill's covers/sales and
+    throwing off Sales By Service Type, Sales By Hour and Guests By Hour.
+    So every row for the same bill number is combined into a single output
+    row here: covers and net sales are summed, and total_amount (used for
+    the discount join) is summed too, before any per-bill dedup happens
+    downstream. The first-seen row's date/hour/service type is kept, since
+    a split bill is opened once and all its rows are on the same ticket."""
     wb = openpyxl.load_workbook(fp, data_only=True, read_only=True)
     ws = wb["Sheet1"]
-    bills = []
+    agg = {}
+    order = []
     bill_totals = {}
     for row in ws.iter_rows(min_row=7, values_only=True):
         bill_no = row[1]
@@ -115,7 +127,8 @@ def parse_payment_report(fp, branch_label):
         total_amount = row[11] if row[11] is not None else 0.0
         tab_name = row[6]
         tab_type = row[7]
-        bill_totals[str(bill_no).strip()] = float(total_amount)
+        bill_key = str(bill_no).strip()
+        bill_totals[bill_key] = bill_totals.get(bill_key, 0.0) + float(total_amount)
         if row_date is None or hour is None:
             continue
         if net_sales == 0:
@@ -124,16 +137,24 @@ def parse_payment_report(fp, branch_label):
             # bill_totals above still records it, so a discount referencing
             # this bill number can still be matched to it.
             continue
-        bills.append({
-            "date": row_date,
-            "hour": hour,
-            "branch": branch_label,
-            "bill": bill_no,
-            "covers": int(covers) if isinstance(covers, (int, float)) else 0,
-            "salesValue": float(net_sales),
-            "serviceType": _service_type(tab_name, tab_type),
-        })
+        covers = int(covers) if isinstance(covers, (int, float)) else 0
+        if bill_key in agg:
+            entry = agg[bill_key]
+            entry["covers"] += covers
+            entry["salesValue"] += float(net_sales)
+        else:
+            agg[bill_key] = {
+                "date": row_date,
+                "hour": hour,
+                "branch": branch_label,
+                "bill": bill_no,
+                "covers": covers,
+                "salesValue": float(net_sales),
+                "serviceType": _service_type(tab_name, tab_type),
+            }
+            order.append(bill_key)
     wb.close()
+    bills = [agg[k] for k in order]
     return bills, bill_totals
 
 
@@ -204,9 +225,19 @@ def _discount_date(value):
 
 
 def parse_discount_report(fp, branch_label, bill_totals):
+    """The same bill number can have more than one discount line (e.g. a
+    separate discount against each of several items on one bill) - storage's
+    dedup key needs something beyond just (branch, bill) or all but the last
+    line for that bill would be silently discarded on every upload, under-
+    reporting the bill's total discount and losing whichever reasons weren't
+    on that last line. `lineSeq` (this line's 0-based position among this
+    bill's own discount lines, in the order they appear in the report) makes
+    each line's key unique while staying stable across re-uploads of the same
+    file, so re-uploading doesn't create duplicates."""
     wb = openpyxl.load_workbook(fp, data_only=True, read_only=True)
     ws = wb["Sheet1"]
     discounts = []
+    line_seq = {}
     for row in ws.iter_rows(min_row=7, values_only=True):
         trxno = row[4]
         if not trxno:
@@ -214,16 +245,20 @@ def parse_discount_report(fp, branch_label, bill_totals):
         row_date = _discount_date(row[3])
         disc_amt = row[7] if isinstance(row[7], (int, float)) else 0.0
         is_foc = str(row[11]).strip().upper() == "YES" if row[11] is not None else False
-        item_value = bill_totals.get(str(trxno).strip())
+        bill_key = str(trxno).strip()
+        item_value = bill_totals.get(bill_key)
         if item_value is None:
             # bill not found in this month's Payment Report (edge case); fall
             # back to treating the discount amount as the item value.
             item_value = disc_amt
         net = round(item_value - disc_amt, 2)
+        seq = line_seq.get(bill_key, 0)
+        line_seq[bill_key] = seq + 1
         discounts.append({
             "date": row_date,
             "branch": branch_label,
             "bill": trxno,
+            "lineSeq": seq,
             "itemValue": round(item_value, 2),
             "discountValue": round(disc_amt, 2),
             "net": net,
@@ -283,7 +318,15 @@ def parse_kot_tracking_report(fp, branch_label):
     (branch, bill, date, item) key and silently overwrite one occurrence with
     another - so, like parse_bill_item_report's aggregation, occurrences that
     share that key are summed here into a single row instead of losing all
-    but the last one.
+    but the last one. But when those repeat occurrences were cancelled for
+    DIFFERENT reasons, clubbing them into one row - as an earlier version of
+    this function did - hid the fact that more than one reason applied and
+    threw off the "Reasons For Cancellation" chart (it would show only the
+    single surviving reason, undercounting every other reason involved). So
+    the aggregation key includes the reason: occurrences of the same dish in
+    the same bill are only summed together when they share a reason, and
+    kept as separate rows (each with its own qty/value) when the reasons
+    differ, so the chart accounts for all of them.
     """
     wb = openpyxl.load_workbook(fp, data_only=True, read_only=True)
     # Unlike the Payment/Bill-Item/Discount reports, real-world KOT Tracking
@@ -321,21 +364,17 @@ def parse_kot_tracking_report(fp, branch_label):
         qty = row[1]
         value = float(row[3]) if isinstance(row[3], (int, float)) else 0.0
         reason = _classify_cancel_reason(row[5] if len(row) > 5 else None)
-        key = (cur_date, cur_bill, item)
+        key = (cur_date, cur_bill, item, reason)
         if key in agg:
             entry = agg[key]
             entry["qty"] += qty
             entry["value"] += value
-            # "Not Specified" is the least informative reason - prefer
-            # whichever occurrence actually named one.
-            if entry["reason"] == "Not Specified" and reason != "Not Specified":
-                entry["reason"] = reason
         else:
             agg[key] = {"qty": qty, "value": value, "reason": reason}
     wb.close()
 
     cancellations = []
-    for (row_date, bill, item), v in agg.items():
+    for (row_date, bill, item, reason), v in agg.items():
         qty = v["qty"]
         cancellations.append({
             "date": row_date,
@@ -345,7 +384,7 @@ def parse_kot_tracking_report(fp, branch_label):
             "qty": qty if qty % 1 else int(qty),
             "rate": round(v["value"] / qty, 2) if qty else 0.0,
             "value": round(v["value"], 2),
-            "reason": v["reason"],
+            "reason": reason,
         })
     return cancellations
 

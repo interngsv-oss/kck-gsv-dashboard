@@ -22,8 +22,18 @@ DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 KEY_FIELDS = {
     "bills": ("branch", "bill", "date"),
     "sales": ("branch", "date", "category", "item"),
-    "discounts": ("branch", "bill"),
-    "cancellations": ("branch", "bill", "date", "item"),
+    # "lineSeq" (this line's position among the same bill's discount lines,
+    # assigned in parsers.parse_discount_report) lets a bill with more than
+    # one discount line keep every line as its own row instead of every
+    # upload collapsing them down to just one, undercounting the total
+    # discount and losing whichever reasons weren't on the surviving line.
+    "discounts": ("branch", "bill", "date", "lineSeq"),
+    # "reason" is part of the key so the same dish cancelled more than once
+    # in one bill for DIFFERENT reasons stays as separate rows (parsers.
+    # parse_kot_tracking_report already only merges occurrences that share a
+    # reason) - otherwise the "Reasons For Cancellation" chart would lose
+    # every reason but whichever row survived the dedup.
+    "cancellations": ("branch", "bill", "date", "item", "reason"),
 }
 
 

@@ -25,8 +25,13 @@ _CONNECT_RETRY_DELAY = 2  # seconds
 KEY_FIELDS = {
     "bills": ("branch", "bill", "date"),
     "sales": ("branch", "date", "category", "item"),
-    "discounts": ("branch", "bill"),
-    "cancellations": ("branch", "bill", "date", "item"),
+    # See storage.py's KEY_FIELDS comment - "lineSeq" keeps every discount
+    # line for a bill as its own row instead of collapsing multi-line bills
+    # down to one line per upload.
+    "discounts": ("branch", "bill", "date", "lineSeq"),
+    # See storage.py's KEY_FIELDS comment - "reason" keeps differently-
+    # reasoned cancellations of the same dish/bill as separate rows.
+    "cancellations": ("branch", "bill", "date", "item", "reason"),
 }
 
 DEFAULT_META = {
