@@ -319,6 +319,7 @@
     display:flex;flex-direction:column;overflow:hidden;
   }
   .modal-box.wide{max-width:1600px;width:95vw;max-height:92vh;}
+  .modal-box.medium{max-width:760px;}
   table.data.history-table{width:100%;min-width:0;}
   table.data.history-table td.wrap{min-width:0;}
   #historyList.table-scroll{max-height:none;}
@@ -963,6 +964,24 @@
         </div>
       </div>
       <div id="historyList" class="table-scroll"></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="itemPeriodModalOverlay" hidden>
+  <div class="modal-box medium" role="dialog" aria-modal="true" aria-labelledby="itemPeriodModalTitle">
+    <div class="modal-head">
+      <h2 id="itemPeriodModalTitle">Period-Wise Breakdown</h2>
+      <button class="modal-close" id="itemPeriodModalClose" type="button" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="modal-hint">Consecutive days are grouped into one period for as long as this dish's rate stayed the same; a new period starts whenever the rate changes.</p>
+      <div class="table-scroll">
+        <table class="data">
+          <thead><tr><th>Period</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Value</th></tr></thead>
+          <tbody id="itemPeriodBody"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 </div>
@@ -1688,8 +1707,8 @@ const tblItems = new DataTable({
     { key:"category", label:"Menu Section", type:"text", text:r => r.category, cell:r => `<span class="cat-tag">${esc(r.category)}</span>` },
     { key:"item", label:"Dish Name", type:"text", text:r => r.item, cls:"wrap" },
     { key:"qty", label:"Portions Sold", type:"num", right:true, text:r => num(r.qty), sort:r => r.qty, total:sumNum(r => r.qty) },
-    moneyCol("rate", "Menu Price", r => r.rate, false),
-    moneyCol("value", "Sales Value", r => r.value),
+    { key:"value", label:"Sales Value", type:"num", right:true, text:r => rs(r.value), sort:r => r.value, total:sumRs(r => r.value),
+      cell:r => `<button type="button" class="link-btn item-period-btn" data-item="${esc(r.item)}" title="See the period-wise rate breakdown behind this value">${rs(r.value)}</button>` },
     { key:"share", label:"Share Of Sales", type:"num", right:true, text:r => r.share.toFixed(1) + "%", sort:r => r.share,
       total:rows => rows.reduce((s,r) => s + r.share, 0).toFixed(1) + "%" }
   ]
@@ -2030,11 +2049,61 @@ function renderCancellations(cancel, sales){
 function aggregateItems(rows){
   const map = new Map();
   rows.forEach(r => {
-    if (!map.has(r.item)) map.set(r.item, { category:r.category, item:r.item, qty:0, rate:r.rate, value:0 });
+    if (!map.has(r.item)) map.set(r.item, { category:r.category, item:r.item, qty:0, value:0 });
     const a = map.get(r.item); a.qty += r.qty; a.value += r.value;
   });
   return [...map.values()].sort((a,b) => b.value - a.value);
 }
+
+/* This dish's own qty/rate/value broken into periods: consecutive dates
+   (within the currently selected scope) are grouped into one period for as
+   long as the dish's effective rate (that date's value / qty, summed across
+   both branches first so one bill split across outlets on the same day
+   doesn't look like two different rates) stays the same - a rate change
+   starts a new period. Rounded to match how rate is already rounded to 2dp
+   at parse time, so float noise doesn't fragment an unchanged rate into
+   spurious extra periods. */
+function itemRatePeriods(itemName){
+  const byDate = new Map();
+  inScope(SALES_DATA).filter(r => r.item === itemName).forEach(r => {
+    const k = r.date.getTime();
+    if (!byDate.has(k)) byDate.set(k, { date:r.date, qty:0, value:0 });
+    const d = byDate.get(k); d.qty += r.qty; d.value += r.value;
+  });
+  const days = [...byDate.values()].sort((a,b) => a.date - b.date)
+    .map(d => ({ ...d, rate: d.qty ? Math.round((d.value / d.qty) * 100) / 100 : 0 }));
+  const periods = [];
+  days.forEach(d => {
+    const last = periods[periods.length - 1];
+    if (last && last.rate === d.rate){
+      last.to = d.date; last.qty += d.qty; last.value += d.value;
+    } else {
+      periods.push({ from:d.date, to:d.date, rate:d.rate, qty:d.qty, value:d.value });
+    }
+  });
+  return periods;
+}
+
+const itemPeriodModalOverlay = document.getElementById("itemPeriodModalOverlay");
+function openItemPeriodModal(itemName){
+  document.getElementById("itemPeriodModalTitle").textContent = `Period-Wise Breakdown — ${itemName}`;
+  const periods = itemRatePeriods(itemName);
+  document.getElementById("itemPeriodBody").innerHTML = periods.length
+    ? periods.map(p => `<tr><td>${p.from.getTime() === p.to.getTime() ? fmtDate(p.from) : fmtDate(p.from) + " – " + fmtDate(p.to)}</td>` +
+        `<td class="r">${num(p.qty)}</td><td class="r">${rs(p.rate)}</td><td class="r">${rs(p.value)}</td></tr>`).join("")
+    : `<tr><td colspan="4" class="empty-cell">No sales for this dish in the current period.</td></tr>`;
+  itemPeriodModalOverlay.hidden = false;
+}
+function closeItemPeriodModal(){ itemPeriodModalOverlay.hidden = true; }
+document.getElementById("tblItems").addEventListener("click", e => {
+  const btn = e.target.closest(".item-period-btn");
+  if (btn) openItemPeriodModal(btn.dataset.item);
+});
+document.getElementById("itemPeriodModalClose").addEventListener("click", closeItemPeriodModal);
+itemPeriodModalOverlay.addEventListener("click", e => { if (e.target === itemPeriodModalOverlay) closeItemPeriodModal(); });
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && !itemPeriodModalOverlay.hidden) closeItemPeriodModal();
+});
 
 function renderAll(){
   closePop();

@@ -53,7 +53,17 @@ def _conn():
     conn = None
     for attempt in range(_CONNECT_RETRIES):
         try:
-            conn = psycopg2.connect(DATABASE_URL)
+            # A big month's Posist export (e.g. ~13k combined bill/sales/
+            # discount/cancellation rows from a busy July) can take several
+            # minutes to parse plus insert on Render's free-tier CPU, which
+            # is far slower than a dev machine - well past whatever short
+            # default statement_timeout a free-tier/serverless Postgres
+            # (e.g. Neon) applies to a session. Without raising it, a large
+            # upload's bulk INSERT gets cancelled mid-transaction by the
+            # DATABASE itself, surfacing as an unhandled exception (the
+            # generic "Something went wrong" error) even though nothing
+            # was actually wrong with the upload's data.
+            conn = psycopg2.connect(DATABASE_URL, options="-c statement_timeout=300000")
             break
         except psycopg2.OperationalError:
             if attempt == _CONNECT_RETRIES - 1:
