@@ -53,23 +53,23 @@ def _conn():
     conn = None
     for attempt in range(_CONNECT_RETRIES):
         try:
-            # A big month's Posist export (e.g. ~13k combined bill/sales/
-            # discount/cancellation rows from a busy July) can take several
-            # minutes to parse plus insert on Render's free-tier CPU, which
-            # is far slower than a dev machine - well past whatever short
-            # default statement_timeout a free-tier/serverless Postgres
-            # (e.g. Neon) applies to a session. Without raising it, a large
-            # upload's bulk INSERT gets cancelled mid-transaction by the
-            # DATABASE itself, surfacing as an unhandled exception (the
-            # generic "Something went wrong" error) even though nothing
-            # was actually wrong with the upload's data.
-            conn = psycopg2.connect(DATABASE_URL, options="-c statement_timeout=300000")
+            conn = psycopg2.connect(DATABASE_URL)
             break
         except psycopg2.OperationalError:
             if attempt == _CONNECT_RETRIES - 1:
                 raise
             time.sleep(_CONNECT_RETRY_DELAY)
     try:
+        # Set via a regular query rather than the connect()-time "options"
+        # startup parameter: Neon's default connection string is pooled
+        # through PgBouncer in transaction mode, which rejects arbitrary
+        # startup parameters outright (every connection would fail, not
+        # just large uploads). A big month's Posist export (~13k combined
+        # bill/sales/discount/cancellation rows) can take several minutes
+        # to parse plus insert on Render's free-tier CPU, past whatever
+        # short default statement_timeout Neon applies to a session.
+        with conn.cursor() as cur:
+            cur.execute("SET statement_timeout = 300000")
         yield conn
         conn.commit()
     except Exception:
