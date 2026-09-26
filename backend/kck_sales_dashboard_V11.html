@@ -1375,16 +1375,44 @@ function applyDashboardData(raw){
   }
 }
 
+/* A free-tier/serverless backend (Render app + Neon DB) that's idle, or
+   still busy finishing a huge upload's DB writes, can have a GET come back
+   as an HTML gateway-timeout page instead of JSON - which throws "Unexpected
+   token '<' ... is not valid JSON" if taken at face value (same class of
+   problem attemptUpload, above, already retries around for the upload
+   itself). Retrying a transient failure here a few times means a GET made
+   right after a big upload doesn't surface that raw parse error - or get
+   mistaken for the upload having failed, when it actually already succeeded. */
+async function fetchJson(url, { attempts = 6, delayMs = 5000 } = {}){
+  for (let attempt = 1; attempt <= attempts; attempt++){
+    try {
+      const res = await fetch(url);
+      let body;
+      try { body = await res.json(); }
+      catch {
+        throw Object.assign(new Error(`${url} returned ${res.status} with a non-JSON response - it may still be waking up`), { transient:true });
+      }
+      if (!res.ok){
+        throw Object.assign(new Error(body.detail || `${url} returned ${res.status}`), { transient: res.status >= 500 });
+      }
+      return body;
+    } catch (err){
+      if (!err.transient || attempt === attempts) throw err;
+      await new Promise(r => setTimeout(r, delayMs));
+    }
+  }
+}
+
 /* Fetches the full dataset from the backend API (see backend/app.py) and
    reshapes it into the DASHBOARD_DATA-like object applyDashboardData expects.
    Called once at startup by startApp(), below. */
 async function loadDashboardData(){
   const [meta, allBills, salesData, discountData, cancelData] = await Promise.all([
-    fetch("/api/meta").then(r => r.json()),
-    fetch("/api/bills").then(r => r.json()),
-    fetch("/api/sales").then(r => r.json()),
-    fetch("/api/discounts").then(r => r.json()),
-    fetch("/api/cancellations").then(r => r.json()),
+    fetchJson("/api/meta"),
+    fetchJson("/api/bills"),
+    fetchJson("/api/sales"),
+    fetchJson("/api/discounts"),
+    fetchJson("/api/cancellations"),
   ]);
   return { meta, allBills, salesData, discountData, cancelData };
 }
@@ -2900,15 +2928,25 @@ uploadBtn.addEventListener("click", async () => {
       : "";
     inputPreview.hidden = false;
     inputPreview.innerHTML = fmt("Bills", body.bills) + fmt("Dish sales", body.sales) + fmt("Discounts", body.discounts) + missingNote;
-    inputStatus.textContent = "Uploaded — refreshing the dashboard…";
-    applyDataset(await loadDashboardData());
-    inputStatus.textContent = "Done. The dashboard now reflects this upload.";
+    // The upload itself (the DB write above) has already succeeded at this
+    // point - a failure past here is only the dashboard re-fetching its own
+    // now-larger dataset, so it gets its own status message rather than
+    // being reported as "Upload failed" (misleading - nothing needs re-
+    // uploading, just a page reload once the backend catches up).
     selectedEntries = [];
     lastUploadMonths = [...new Set([...Object.keys(body.bills), ...Object.keys(body.sales), ...Object.keys(body.discounts)])].sort();
     clearFilesBtn.hidden = true;
     uploadBtn.hidden = true;
     viewDashboardBtn.hidden = !lastUploadMonths.length;
     refreshUploadHistory();
+    try {
+      inputStatus.textContent = "Uploaded — refreshing the dashboard…";
+      applyDataset(await loadDashboardData());
+      inputStatus.textContent = "Done. The dashboard now reflects this upload.";
+    } catch (err){
+      console.error("Post-upload dashboard refresh failed", err);
+      inputStatus.textContent = "Uploaded successfully, but refreshing the view failed (" + err.message + "). Reload the page to see it.";
+    }
   } catch (err){
     console.error("Upload failed", err);
     inputStatus.textContent = "Upload failed: " + err.message;
