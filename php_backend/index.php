@@ -10,6 +10,7 @@ require_once __DIR__ . '/lib/auth.php';
 require_once __DIR__ . '/lib/storage.php';
 require_once __DIR__ . '/lib/parsers.php';
 require_once __DIR__ . '/lib/multipart.php';
+require_once __DIR__ . '/lib/azure_blob.php';
 
 kck_install_error_handler();
 
@@ -420,15 +421,18 @@ function kck_route_upload_locked(float $t0): void {
     $extractDir = $tmp . '/extracted';
     @mkdir($extractDir, 0777, true);
     try {
+        $blobItems = [];   // originals to copy to Azure Blob (if configured) after a successful upload
         foreach ($files as $f) {
             $filename = $f['filename'] ?? '';
             if (strtolower(substr($filename, -4)) === '.zip') {
                 kck_safe_extract_zip($f['tmp_path'], $extractDir, $filename);
+                $blobItems[] = ['name' => $filename, 'path' => $f['tmp_path']];
             } else {
                 $rel = kck_safe_relpath($filename);
                 $dest = $extractDir . '/' . $rel;
                 @mkdir(dirname($dest), 0777, true);
                 rename($f['tmp_path'], $dest);
+                $blobItems[] = ['name' => $filename, 'path' => $dest];
             }
         }
 
@@ -439,6 +443,9 @@ function kck_route_upload_locked(float $t0): void {
             kck_json_error(400, $e->getMessage());
         }
 
+        // kck_json() exits (finally blocks don't run on exit), so the blob copy
+        // and the temp-dir cleanup both run from a shutdown function instead.
+        kck_azure_queue_after_response($blobItems, fn() => kck_rrmdir($tmp));
         kck_write_parsed_upload(
             $bills, $sales, $discounts, $cancellations, $missingSections,
             array_values(array_filter(array_map(fn($f) => $f['filename'], $files))),
@@ -501,7 +508,8 @@ function kck_route_upload_json(): void {
         kck_json_error(409, 'Another upload is already being processed - please wait for it to finish, then try again.');
     }
     try {
-        $body = json_decode(file_get_contents('php://input'), true);
+        $rawBody = file_get_contents('php://input');
+        $body = json_decode($rawBody, true);
         if (!is_array($body)) {
             kck_json_error(400, 'Invalid JSON body.');
         }
@@ -520,6 +528,7 @@ function kck_route_upload_json(): void {
         kck_log_step('upload-json received: ' . count($body['bills']) . ' bills, ' . count($body['sales']) . ' sales, '
             . count($body['discounts']) . ' discounts, ' . count($body['cancellations']) . ' cancellations', $t0);
 
+        kck_azure_queue_after_response([['name' => 'prepared_upload.json', 'data' => $rawBody]]);
         kck_write_parsed_upload(
             $body['bills'], $body['sales'], $body['discounts'], $body['cancellations'],
             $body['missing'] ?? [],

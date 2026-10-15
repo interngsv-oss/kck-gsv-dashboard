@@ -21,4 +21,11 @@ return [
         // (TOTP) login. Generate one with `python backend/make_totp_secret.py`.
         // 'admin_totp_secret' => 'BASE32SECRET',
     ],
+    // Optional: copy every successfully processed upload to a PRIVATE Azure
+    // Blob container. 'sas' = a SAS token with Create + Write permission only.
+    // 'azure' => [
+    //     'account'   => 'mystorageaccount',
+    //     'container' => 'kck-uploads',
+    //     'sas'       => 'sv=...&sp=cw&sig=...',
+    // ],
 ];
