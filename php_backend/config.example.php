@@ -17,5 +17,8 @@ return [
         'admin_password' => 'CHANGE_ME',
         'viewer_email' => 'user@gsvassociates.com',
         'viewer_password' => 'CHANGE_ME',
+        // Optional but recommended: base32 secret for admin authenticator-app
+        // (TOTP) login. Generate one with `python backend/make_totp_secret.py`.
+        // 'admin_totp_secret' => 'BASE32SECRET',
     ],
 ];

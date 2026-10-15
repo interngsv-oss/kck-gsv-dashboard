@@ -141,6 +141,10 @@
         <input class="gate-input" type="email" id="gateEmail" autocomplete="username" required>
         <label class="gate-label" for="gatePassword">Password</label>
         <input class="gate-input" type="password" id="gatePassword" autocomplete="current-password" required>
+        <div id="gateCodeWrap" hidden>
+          <label class="gate-label" for="gateCode">Authenticator code</label>
+          <input class="gate-input" type="text" id="gateCode" inputmode="numeric" autocomplete="one-time-code" maxlength="8" style="width:100%;box-sizing:border-box;">
+        </div>
         <div class="gate-error" id="gateError" hidden>Incorrect email or password.</div>
         <div class="gate-status" id="gateStatus" hidden>Connecting…</div>
         <button class="action-btn hd" type="submit" id="gateSubmitBtn">Log In</button>
@@ -180,11 +184,16 @@ gateForm.addEventListener("submit", async e => {
       body: JSON.stringify({
         email: document.getElementById("gateEmail").value.trim(),
         password: document.getElementById("gatePassword").value,
+        code: document.getElementById("gateCode").value.trim(),
       }),
     });
     if (res.ok) { location.replace("/"); return; }
     let detail = "Could not sign in.";
-    try { detail = (await res.json()).detail || detail; } catch {}
+    try {
+      const j = await res.json();
+      detail = j.detail || detail;
+      if (j.mfa_required){ document.getElementById("gateCodeWrap").hidden = false; document.getElementById("gateCode").focus(); }
+    } catch {}
     gateError.textContent = detail;
     gateError.hidden = false;
   } catch (err) {

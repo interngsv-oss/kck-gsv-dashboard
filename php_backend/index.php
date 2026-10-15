@@ -84,6 +84,20 @@ function kck_route_login(): void {
         // Same generic message for a wrong email and a wrong password.
         kck_json_error(401, 'Invalid email or password.');
     }
+    if ($isAdmin && !empty($auth['admin_totp_secret'])) {
+        // Second factor for the admin account (authenticator-app code).
+        $code = (string) ($body['code'] ?? '');
+        if (trim($code) === '') {
+            // Password was right, code just not asked for yet - not a failed attempt.
+            kck_json(['detail' => 'Enter the 6-digit code from your authenticator app.', 'mfa_required' => true], 401);
+        }
+        $step = kck_totp_verify($auth['admin_totp_secret'], $code);
+        if ($step === null || kck_totp_step_used($step)) {
+            kck_record_failed_login($keys);
+            kck_audit('FAILED MFA for ' . json_encode($email) . ' from ' . kck_client_ip());
+            kck_json(['detail' => 'Invalid or expired code.', 'mfa_required' => true], 401);
+        }
+    }
     kck_clear_failed_logins($keys);
     $role = $isAdmin ? 'admin' : 'viewer';
     kck_audit("LOGIN $email ($role) from " . kck_client_ip());
@@ -172,6 +186,44 @@ function kck_route_delete_row(string $dataset): void {
     kck_json(['deleted' => true]);
 }
 
+/** Snapshot every dataset (plus meta) into the database BEFORE a destructive
+ * action, so it can be undone with /api/restore-backup. */
+function kck_take_backup(string $label): int {
+    $datasets = [];
+    foreach (KCK_EDITABLE_DATASETS as $d) $datasets[$d] = kck_read_range($d);
+    $id = kck_save_backup($label, ['meta' => kck_read_meta(), 'datasets' => $datasets]);
+    kck_audit("BACKUP #$id taken: $label");
+    return $id;
+}
+
+function kck_route_audit_log(): void {
+    kck_require_admin();
+    kck_json(kck_read_audit(500));
+}
+
+function kck_route_backups(): void {
+    kck_require_admin();
+    kck_json(kck_list_backups());
+}
+
+function kck_route_restore_backup(): void {
+    kck_require_admin();
+    $body = kck_read_json_body();
+    if (!hash_equals(kck_auth_config()['admin_password'], (string) ($body['password'] ?? ''))) {
+        kck_json_error(403, 'Password incorrect - nothing was restored.');
+    }
+    $id = (int) ($body['id'] ?? 0);
+    $snapshot = $id ? kck_get_backup($id) : null;
+    if (!$snapshot) kck_json_error(404, 'No backup with that id.');
+    foreach ($snapshot['datasets'] as $dataset => $rows) {
+        if (in_array($dataset, KCK_EDITABLE_DATASETS, true) && $rows) kck_replace_months($dataset, $rows);
+    }
+    kck_write_meta($snapshot['meta']);
+    kck_recompute_meta_dates();
+    kck_audit("RESTORE of backup #$id");
+    kck_json(['restored' => $id]);
+}
+
 function kck_route_clear_all(): void {
     kck_require_admin();
     // Irreversible, so the admin must re-enter their password.
@@ -179,8 +231,9 @@ function kck_route_clear_all(): void {
     if (!hash_equals(kck_auth_config()['admin_password'], (string) ($body['password'] ?? ''))) {
         kck_json_error(403, 'Password incorrect - nothing was deleted.');
     }
+    $backupId = kck_take_backup('before Clear All Data');
     kck_clear_all();
-    kck_json(['cleared' => true]);
+    kck_json(['cleared' => true, 'backupId' => $backupId]);
 }
 
 function kck_route_delete_month(): void {
@@ -195,6 +248,7 @@ function kck_route_delete_month(): void {
     }
     if (!$datasets) kck_json_error(400, 'No datasets selected to delete.');
 
+    $backupId = kck_take_backup("before deleting $month (" . implode(', ', $datasets) . ')');
     $removed = [];
     foreach ($datasets as $d) $removed[$d] = kck_delete_month($d, $month);
     if (in_array('bills', $datasets, true)) kck_recompute_meta_dates();
@@ -204,11 +258,12 @@ function kck_route_delete_month(): void {
         $historyRemoved = kck_delete_upload_history_month($month);
         if ($historyRemoved) kck_recompute_last_refreshed();
     }
-    kck_json(['month' => $month, 'removed' => $removed, 'historyRemoved' => $historyRemoved]);
+    kck_json(['month' => $month, 'removed' => $removed, 'historyRemoved' => $historyRemoved, 'backupId' => $backupId]);
 }
 
 function kck_route_migrate_discount_reasons(): void {
     kck_require_admin();
+    kck_take_backup('before migrate-discount-reasons');
     $rows = kck_read_range('discounts');
     foreach ($rows as &$row) {
         $row['reason'] = kck_discount_reason_from_remark($row['remarks'] ?? null);
@@ -225,6 +280,7 @@ function kck_route_migrate_discount_reasons(): void {
 
 function kck_route_migrate_zero_sales_bills(): void {
     kck_require_admin();
+    kck_take_backup('before migrate-zero-sales-bills');
     $allRows = kck_read_range('bills');
     $kept = array_values(array_filter($allRows, fn($r) => ($r['salesValue'] ?? null) != 0));
     $months = array_values(array_unique(array_map(fn($r) => substr($r['date'], 0, 7), $allRows)));
@@ -524,6 +580,12 @@ if ($path === '/' && in_array($method, ['GET', 'HEAD'], true)) {
     kck_route_upload();
 } elseif ($path === '/api/upload-json' && $method === 'POST') {
     kck_route_upload_json();
+} elseif ($path === '/api/audit-log' && $method === 'GET') {
+    kck_route_audit_log();
+} elseif ($path === '/api/backups' && $method === 'GET') {
+    kck_route_backups();
+} elseif ($path === '/api/restore-backup' && $method === 'POST') {
+    kck_route_restore_backup();
 } elseif ($path === '/api/clear-all' && $method === 'POST') {
     kck_route_clear_all();
 } elseif ($path === '/api/delete-month' && $method === 'POST') {

@@ -276,3 +276,39 @@ def recompute_meta_dates():
     meta["dataEnd"] = max(all_dates)
     write_meta(meta)
     return meta
+
+
+# ---- audit trail + automatic backups (local-dev equivalent of storage_db's) ----
+MAX_AUDIT_ROWS = 5000
+MAX_BACKUPS = 5
+
+
+def write_audit(ts, message):
+    path = os.path.join(DATA_DIR, "audit_log.json")
+    log = _read_json(path, [])
+    log.append({"timestamp": ts, "message": message})
+    _write_json(path, log[-MAX_AUDIT_ROWS:])
+
+
+def read_audit(limit=200):
+    return list(reversed(_read_json(os.path.join(DATA_DIR, "audit_log.json"), [])))[:limit]
+
+
+def _backups():
+    return _read_json(os.path.join(DATA_DIR, "backups.json"), [])
+
+
+def save_backup(created, label, snapshot):
+    items = _backups()
+    new_id = (items[-1]["id"] + 1) if items else 1
+    items.append({"id": new_id, "created": created, "label": label, "data": snapshot})
+    _write_json(os.path.join(DATA_DIR, "backups.json"), items[-MAX_BACKUPS:])
+    return new_id
+
+
+def list_backups():
+    return [{"id": b["id"], "created": b["created"], "label": b["label"]} for b in reversed(_backups())]
+
+
+def get_backup(backup_id):
+    return next((b["data"] for b in _backups() if b["id"] == backup_id), None)

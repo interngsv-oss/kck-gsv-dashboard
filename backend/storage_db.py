@@ -93,6 +93,8 @@ def _ensure_schema():
         """)
         cur.execute("CREATE INDEX IF NOT EXISTS rows_dataset_month_idx ON rows (dataset, month);")
         cur.execute("CREATE TABLE IF NOT EXISTS upload_history (id SERIAL PRIMARY KEY, entry JSONB NOT NULL);")
+        cur.execute("CREATE TABLE IF NOT EXISTS audit_log (id SERIAL PRIMARY KEY, ts TEXT NOT NULL, message TEXT NOT NULL);")
+        cur.execute("CREATE TABLE IF NOT EXISTS backups (id SERIAL PRIMARY KEY, created TEXT NOT NULL, label TEXT NOT NULL, data JSONB NOT NULL);")
 
 
 _ensure_schema()
@@ -329,3 +331,47 @@ def recompute_last_refreshed():
     meta["lastRefreshed"] = history[-1]["timestamp"] if history else None
     write_meta(meta)
     return meta
+
+
+# ---- audit trail + automatic backups (kept in the database, so they survive
+# redeploys, unlike the process log) ----
+MAX_AUDIT_ROWS = 5000
+MAX_BACKUPS = 5
+
+
+def write_audit(ts, message):
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("INSERT INTO audit_log (ts, message) VALUES (%s, %s);", (ts, message))
+        cur.execute("DELETE FROM audit_log WHERE id NOT IN (SELECT id FROM audit_log ORDER BY id DESC LIMIT %s);",
+                    (MAX_AUDIT_ROWS,))
+
+
+def read_audit(limit=200):
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT ts, message FROM audit_log ORDER BY id DESC LIMIT %s;", (limit,))
+        return [{"timestamp": t, "message": m} for t, m in cur.fetchall()]
+
+
+def save_backup(created, label, snapshot):
+    """Stores a full snapshot ({"meta":..., "datasets": {name: rows}}) and
+    prunes to the newest MAX_BACKUPS. Returns the new backup's id."""
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("INSERT INTO backups (created, label, data) VALUES (%s, %s, %s) RETURNING id;",
+                    (created, label, json.dumps(snapshot)))
+        new_id = cur.fetchone()[0]
+        cur.execute("DELETE FROM backups WHERE id NOT IN (SELECT id FROM backups ORDER BY id DESC LIMIT %s);",
+                    (MAX_BACKUPS,))
+    return new_id
+
+
+def list_backups():
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id, created, label FROM backups ORDER BY id DESC;")
+        return [{"id": i, "created": c, "label": l} for i, c, l in cur.fetchall()]
+
+
+def get_backup(backup_id):
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT data FROM backups WHERE id = %s;", (backup_id,))
+        row = cur.fetchone()
+        return row[0] if row else None

@@ -37,6 +37,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 import parsers
+import totp
 
 # storage.py's JSON-file store doesn't survive a redeploy/restart on a host
 # with no persistent disk (e.g. Render's free tier) - when DATABASE_URL is
@@ -70,6 +71,17 @@ if not audit_log.handlers:
     audit_log.addHandler(_h)
 
 
+def _audit(message: str, warn: bool = False) -> None:
+    """Audit trail: the process log (as before) PLUS the database, so the
+    record survives redeploys and an admin can read it via /api/audit-log.
+    A failure to persist must never break the request being audited."""
+    (audit_log.warning if warn else audit_log.info)("%s", message)
+    try:
+        storage.write_audit(datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), message[:1000])
+    except Exception:
+        audit_log.exception("could not persist audit entry")
+
+
 # Real server-side sign-in. POST /api/login checks the email/password HERE (no
 # credentials ever ship to the browser) and sets an HttpOnly, Secure,
 # SameSite=Strict cookie holding a signed, expiring session token. "/" only
@@ -80,6 +92,10 @@ ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@gsvassociates.com").strip().l
 VIEWER_EMAIL = os.environ.get("VIEWER_EMAIL", "user@gsvassociates.com").strip().lower()
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
 VIEWER_PASSWORD = os.environ.get("VIEWER_PASSWORD")
+# Optional base32 TOTP secret (see make_totp_secret.py). When set, the admin
+# account must also enter an authenticator-app code at login.
+ADMIN_TOTP_SECRET = (os.environ.get("ADMIN_TOTP_SECRET") or "").strip()
+_last_totp_step = [0]
 
 COOKIE_NAME = "kck_session"
 SESSION_TTL_SECONDS = 8 * 60 * 60          # short-lived: sign in again after 8 hours
@@ -176,7 +192,7 @@ def require_admin(request: Request, role: str = Depends(require_viewer)) -> str:
     the server log (who, what, when) as an audit trail."""
     if role != "admin":
         raise HTTPException(403, "This action requires an admin account.")
-    audit_log.info("ADMIN ACTION %s %s by %s", request.method, request.url.path, request.state.actor)
+    _audit(f"ADMIN ACTION {request.method} {request.url.path} by {request.state.actor}")
     return role
 
 
@@ -285,13 +301,29 @@ async def login(request: Request):
         now = time.time()
         for k in keys:
             _failed_logins.setdefault(k, []).append(now)
-        audit_log.warning("FAILED LOGIN for %r from %s", email, _client_ip(request))
+        _audit(f"FAILED LOGIN for {email!r} from {_client_ip(request)}", warn=True)
         # Same generic message for a wrong email and a wrong password.
         raise HTTPException(401, "Invalid email or password.")
+    if is_admin and ADMIN_TOTP_SECRET:
+        # Second factor for the admin account (authenticator-app code).
+        code = str(body.get("code", ""))
+        if not code.strip():
+            # Password was right, code just not asked for yet: tell the login
+            # page to show the code box. Not counted as a failed attempt.
+            return JSONResponse({"detail": "Enter the 6-digit code from your authenticator app.",
+                                 "mfa_required": True}, status_code=401)
+        step = totp.verify(ADMIN_TOTP_SECRET, code)
+        if step is None or step <= _last_totp_step[0]:   # wrong, or a replayed code
+            now = time.time()
+            for k in keys:
+                _failed_logins.setdefault(k, []).append(now)
+            _audit(f"FAILED MFA for {email!r} from {_client_ip(request)}", warn=True)
+            return JSONResponse({"detail": "Invalid or expired code.", "mfa_required": True}, status_code=401)
+        _last_totp_step[0] = step
     for k in keys:
         _failed_logins.pop(k, None)
     role = "admin" if is_admin else "viewer"
-    audit_log.info("LOGIN %s (%s) from %s", email, role, _client_ip(request))
+    _audit(f"LOGIN {email} ({role}) from {_client_ip(request)}")
     response = JSONResponse({"role": role})
     response.set_cookie(COOKIE_NAME, _make_session(role, email), max_age=SESSION_TTL_SECONDS,
                         httponly=True, secure=request.url.hostname not in ("localhost", "127.0.0.1"),
@@ -304,7 +336,7 @@ def logout(request: Request):
     session = current_session(request)
     if session:
         _revoked_sessions[session["j"]] = session["x"]   # dead server-side, not just cleared in the browser
-        audit_log.info("LOGOUT %s", session["e"])
+        _audit(f"LOGOUT {session['e']}")
     response = JSONResponse({"ok": True})
     response.delete_cookie(COOKIE_NAME, path="/")
     return response
@@ -320,6 +352,16 @@ def get_meta(role: str = Depends(require_viewer)):
     # HEAD too - uptime-monitor pings (UptimeRobot etc.) default to HEAD
     # requests, which a GET-only route rejects with 405.
     return storage.read_meta()
+
+
+@app.get("/api/audit-log")
+def get_audit_log(role: str = Depends(require_admin)):
+    return storage.read_audit(500)
+
+
+@app.get("/api/backups")
+def get_backups(role: str = Depends(require_admin)):
+    return storage.list_backups()
 
 
 @app.get("/api/upload-history")
@@ -543,6 +585,38 @@ async def upload_export_json(request: Request, payload: Dict[str, Any], role: st
     )
 
 
+def _take_backup(label: str) -> int:
+    """Snapshot every dataset (plus meta) into the database BEFORE a
+    destructive action, so it can be undone with /api/restore-backup."""
+    snapshot = {"meta": storage.read_meta(),
+                "datasets": {d: storage.read_range(d) for d in EDITABLE_DATASETS}}
+    backup_id = storage.save_backup(datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), label, snapshot)
+    _audit(f"BACKUP #{backup_id} taken: {label}")
+    return backup_id
+
+
+@app.post("/api/restore-backup")
+def restore_backup(payload: Dict[str, Any], role: str = Depends(require_admin)):
+    """Puts a backup's rows back (month by month) and its meta. Needs the
+    admin password again, like clear-all. Upload history is not restored."""
+    if not secrets.compare_digest(str(payload.get("password", "")), ADMIN_PASSWORD):
+        raise HTTPException(403, "Password incorrect - nothing was restored.")
+    try:
+        backup_id = int(payload.get("id"))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Missing backup 'id'.")
+    snapshot = storage.get_backup(backup_id)
+    if not snapshot:
+        raise HTTPException(404, "No backup with that id.")
+    for dataset, rows in snapshot["datasets"].items():
+        if dataset in EDITABLE_DATASETS and rows:
+            storage.replace_months(dataset, rows)
+    storage.write_meta(snapshot["meta"])
+    storage.recompute_meta_dates()
+    _audit(f"RESTORE of backup #{backup_id}")
+    return {"restored": backup_id}
+
+
 @app.post("/api/clear-all")
 def clear_all_data(payload: Dict[str, Any], role: str = Depends(require_admin)):
     """Wipes every uploaded row and the upload history log entirely. Admin
@@ -551,8 +625,9 @@ def clear_all_data(payload: Dict[str, Any], role: str = Depends(require_admin)):
     POST /api/upload."""
     if not secrets.compare_digest(str(payload.get("password", "")), ADMIN_PASSWORD):
         raise HTTPException(403, "Password incorrect - nothing was deleted.")
+    backup_id = _take_backup("before Clear All Data")
     storage.clear_all()
-    return {"cleared": True}
+    return {"cleared": True, "backupId": backup_id}
 
 
 @app.post("/api/delete-month")
@@ -572,6 +647,7 @@ def delete_month_data(payload: Dict[str, Any], role: str = Depends(require_admin
     if not datasets:
         raise HTTPException(400, "No datasets selected to delete.")
 
+    backup_id = _take_backup(f"before deleting {month} ({', '.join(datasets)})")
     removed = {d: storage.delete_month(d, month) for d in datasets}
     if "bills" in datasets:
         storage.recompute_meta_dates()
@@ -591,7 +667,7 @@ def delete_month_data(payload: Dict[str, Any], role: str = Depends(require_admin
             # None if history is now empty), instead of leaving it pointing
             # at data that no longer exists.
             storage.recompute_last_refreshed()
-    return {"month": month, "removed": removed, "historyRemoved": history_removed}
+    return {"month": month, "removed": removed, "historyRemoved": history_removed, "backupId": backup_id}
 
 
 @app.post("/api/migrate-discount-reasons")
@@ -604,6 +680,7 @@ def migrate_discount_reasons(role: str = Depends(require_admin)):
     existing months' charts catch up without anyone re-uploading anything.
     Idempotent - safe to call more than once. Admin-only (server-enforced). Must stay registered
     before POST /api/{dataset} below, same reasoning as POST /api/upload."""
+    _take_backup("before migrate-discount-reasons")
     rows = storage.read_range("discounts")
     for row in rows:
         row["reason"] = parsers.discount_reason_from_remark(row.get("remarks"))
@@ -627,6 +704,7 @@ def migrate_zero_sales_bills(role: str = Depends(require_admin)):
     not left with its stale zero-sales rows untouched. Idempotent - safe to
     call more than once. Admin-only (server-enforced). Must stay registered before POST
     /api/{dataset} below, same reasoning as POST /api/upload."""
+    _take_backup("before migrate-zero-sales-bills")
     all_rows = storage.read_range("bills")
     kept = [r for r in all_rows if r.get("salesValue") != 0]
 

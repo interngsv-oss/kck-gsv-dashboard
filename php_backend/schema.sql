@@ -117,3 +117,18 @@ CREATE TABLE IF NOT EXISTS app_upload_history_counts (
     FOREIGN KEY (history_id) REFERENCES app_upload_history(id) ON DELETE CASCADE
 );
 CREATE INDEX uh_counts_idx ON app_upload_history_counts (history_id);
+
+-- Audit trail and automatic pre-destructive-action backups, kept in the
+-- database so they survive redeploys and aren't only in the PHP error log.
+CREATE TABLE IF NOT EXISTS app_audit_log (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    ts VARCHAR(32) NOT NULL,
+    message VARCHAR(1000) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS app_backups (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    created VARCHAR(32) NOT NULL,
+    label VARCHAR(255) NOT NULL,
+    data LONGTEXT NOT NULL
+);

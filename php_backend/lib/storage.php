@@ -396,3 +396,41 @@ function kck_recompute_last_refreshed(): array {
     kck_write_meta($meta);
     return $meta;
 }
+
+
+// ---- audit trail + automatic backups (kept in the database) ----
+const KCK_MAX_AUDIT_ROWS = 5000;
+const KCK_MAX_BACKUPS = 5;
+
+function kck_write_audit(string $message): void {
+    $pdo = kck_db();
+    $pdo->prepare('INSERT INTO app_audit_log (ts, message) VALUES (:ts, :m)')
+        ->execute([':ts' => gmdate('Y-m-d\TH:i:s\Z'), ':m' => mb_substr($message, 0, 1000)]);
+    $pdo->exec('DELETE FROM app_audit_log WHERE id <= (SELECT m FROM (SELECT MAX(id) - ' . KCK_MAX_AUDIT_ROWS . ' AS m FROM app_audit_log) t)');
+}
+
+function kck_read_audit(int $limit = 200): array {
+    $stmt = kck_db()->query('SELECT ts, message FROM app_audit_log ORDER BY id DESC LIMIT ' . (int) $limit);
+    return array_map(fn($r) => ['timestamp' => $r['ts'], 'message' => $r['message']], $stmt->fetchAll(PDO::FETCH_ASSOC));
+}
+
+function kck_save_backup(string $label, array $snapshot): int {
+    $pdo = kck_db();
+    $pdo->prepare('INSERT INTO app_backups (created, label, data) VALUES (:c, :l, :d)')
+        ->execute([':c' => gmdate('Y-m-d\TH:i:s\Z'), ':l' => $label, ':d' => json_encode($snapshot)]);
+    $id = (int) $pdo->lastInsertId();
+    $pdo->exec('DELETE FROM app_backups WHERE id <= ' . ($id - KCK_MAX_BACKUPS));
+    return $id;
+}
+
+function kck_list_backups(): array {
+    $stmt = kck_db()->query('SELECT id, created, label FROM app_backups ORDER BY id DESC');
+    return array_map(fn($r) => ['id' => (int) $r['id'], 'created' => $r['created'], 'label' => $r['label']], $stmt->fetchAll(PDO::FETCH_ASSOC));
+}
+
+function kck_get_backup(int $id): ?array {
+    $stmt = kck_db()->prepare('SELECT data FROM app_backups WHERE id = :id');
+    $stmt->execute([':id' => $id]);
+    $data = $stmt->fetchColumn();
+    return $data === false ? null : json_decode($data, true);
+}

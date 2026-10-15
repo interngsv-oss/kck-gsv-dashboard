@@ -75,8 +75,55 @@ function kck_client_ip(): string {
     return $_SERVER['REMOTE_ADDR'] ?? '?';
 }
 
+/** Audit trail: PHP error log (as before) AND the database, so it survives
+ * and an admin can read it via /api/audit-log. Never breaks the request. */
 function kck_audit(string $msg): void {
     error_log('AUDIT ' . $msg);
+    try { kck_write_audit($msg); } catch (Throwable $e) { error_log('could not persist audit entry: ' . $e->getMessage()); }
+}
+
+// ---- TOTP (RFC 6238; SHA-1, 6 digits, 30s) for the optional admin second factor ----
+function kck_base32_decode(string $s): string {
+    $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    $s = strtoupper(preg_replace('/[\s=]/', '', $s));
+    $bits = '';
+    foreach (str_split($s) as $ch) {
+        $v = strpos($alphabet, $ch);
+        if ($v === false) return '';
+        $bits .= str_pad(decbin($v), 5, '0', STR_PAD_LEFT);
+    }
+    $out = '';
+    foreach (str_split($bits, 8) as $byte) {
+        if (strlen($byte) === 8) $out .= chr(bindec($byte));
+    }
+    return $out;
+}
+
+function kck_totp_code(string $secretB32, int $counter): string {
+    $mac = hash_hmac('sha1', pack('N2', 0, $counter), kck_base32_decode($secretB32), true);
+    $off = ord($mac[19]) & 0x0F;
+    $num = ((ord($mac[$off]) & 0x7F) << 24 | ord($mac[$off + 1]) << 16 | ord($mac[$off + 2]) << 8 | ord($mac[$off + 3])) % 1000000;
+    return str_pad((string) $num, 6, '0', STR_PAD_LEFT);
+}
+
+/** The matching time-step, or null. Allows +/-1 step of clock drift. */
+function kck_totp_verify(string $secretB32, string $code): ?int {
+    $code = preg_replace('/\s/', '', $code);
+    if (!preg_match('/^\d{6}$/', $code)) return null;
+    $counter = intdiv(time(), 30);
+    for ($c = $counter - 1; $c <= $counter + 1; $c++) {
+        if (hash_equals(kck_totp_code($secretB32, $c), $code)) return $c;
+    }
+    return null;
+}
+
+/** Replay guard: a code's step may only be accepted once. */
+function kck_totp_step_used(int $step): bool {
+    $f = kck_state_dir() . '/totp_last_step';
+    $last = is_file($f) ? (int) file_get_contents($f) : 0;
+    if ($step <= $last) return true;
+    file_put_contents($f, (string) $step, LOCK_EX);
+    return false;
 }
 
 function kck_lockout_file(string $key): string {

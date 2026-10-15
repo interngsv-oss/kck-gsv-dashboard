@@ -1169,11 +1169,6 @@ const markNoLogo = () => document.getElementById("logoTile").classList.add("no-i
 logoImg.addEventListener("error", markNoLogo);
 if (logoImg.complete && !logoImg.naturalWidth) markNoLogo();
 
-const gateLogoImg = document.getElementById("gateLogoImg");
-const markNoGateLogo = () => document.getElementById("gateLogoTile").classList.add("no-img");
-gateLogoImg.addEventListener("error", markNoGateLogo);
-if (gateLogoImg.complete && !gateLogoImg.naturalWidth) markNoGateLogo();
-
 /* =====================================================================
    FORMATTING
 ===================================================================== */
