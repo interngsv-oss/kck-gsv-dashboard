@@ -3,8 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
 <title>Sales Dashboard | Kappa Chakka Kandhari</title>
-<link rel="icon" href="https://kappachakkakandhari.com/wp-content/uploads/2024/03/cropped-logo-1-270x270.png">
+<link rel="icon" href="/static/favicon.png">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <!-- Only used by "Share" to build a real, attachable PDF (html2canvas rasterizes the
      on-screen report, jsPDF assembles the pages) - Download Report / Excel / everything
@@ -690,67 +691,7 @@
   @media(max-width:700px){.footer-logout{position:static;transform:none;margin-bottom:8px;}
     .site-footer{flex-direction:column;}}
 
-  /* ----- sign-in gate: shown until Netlify Identity confirms a logged-in user -----
-     Split layout so the sign-in screen actually uses the full viewport instead of
-     one small card floating on an empty black field: a left "brand" panel (logo,
-     name, a few reasons-to-care) and a right panel with the actual form. */
-  #authGate{
-    position:fixed;inset:0;z-index:500;
-    display:flex;
-    background:var(--brand-dark);
-  }
-  .gate-visual{
-    flex:1 1 56%;
-    position:relative;
-    display:flex;align-items:center;justify-content:center;
-    padding:40px;
-    background:
-      radial-gradient(circle at 22% 20%, rgba(228,182,51,.16), transparent 55%),
-      radial-gradient(circle at 82% 78%, rgba(140,122,107,.16), transparent 50%),
-      var(--brand-dark);
-    border-right:1px solid var(--brand-line);
-    overflow:hidden;
-  }
-  .gate-visual::after{
-    content:"";position:absolute;left:0;right:0;bottom:0;height:6px;
-    background:repeating-linear-gradient(90deg, var(--brand-gold) 0 22px, transparent 22px 30px);
-    opacity:.55;
-  }
-  .gate-visual-inner{max-width:440px;text-align:center;}
-  .logo-tile-lg{
-    width:300px;height:300px;margin:0 auto 28px;
-    display:flex;align-items:center;justify-content:center;
-    border:1px solid var(--brand-line);border-radius:50%;
-    background:rgba(228,182,51,.06);
-    overflow:hidden;
-  }
-  .logo-tile-lg img{max-width:240px;max-height:240px;width:auto;height:auto;display:block;}
-  .logo-fallback-lg{display:none;font-family:var(--head-font);font-style:italic;font-weight:700;font-size:84px;color:var(--brand-gold);}
-  .logo-tile-lg.no-img img{display:none;}
-  .logo-tile-lg.no-img .logo-fallback-lg{display:block;}
-  .gate-visual-title{font-size:32px;color:var(--brand-gold);margin-bottom:12px;line-height:1.15;}
-  .gate-visual-sub{font-size:17px;color:var(--on-dark-soft);}
-  .gate-card-wrap{flex:1 1 44%;display:flex;align-items:center;justify-content:center;padding:40px 24px;}
-  .gate-card{width:100%;max-width:340px;text-align:left;}
-  .gate-card .gate-sub{color:var(--on-dark);font-size:26px;margin-bottom:28px;}
-  .gate-form{display:flex;flex-direction:column;gap:10px;}
-  .gate-label{font-size:12px;color:var(--on-dark-soft);}
-  .gate-input{
-    font-size:14px;padding:8px 10px;border-radius:4px;
-    border:1px solid var(--brand-line);background:var(--brand-dark-2);color:var(--on-dark);
-    font-family:var(--body-font);
-  }
-  .gate-input:focus{border-color:var(--brand-gold);outline:none;}
   .gate-error{color:#E88A78;font-size:13px;}
-  .gate-status{color:var(--on-dark-soft);font-size:13px;}
-  #gateSubmitBtn:disabled{opacity:.65;cursor:default;}
-  .gate-card .action-btn{font-size:14px;padding:9px 22px;margin-top:6px;width:100%;justify-content:center;}
-  .gate-footer{margin-top:28px;font-size:15.5px;color:var(--on-dark-soft);display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
-  .gate-footer a{color:var(--brand-taupe);}
-  @media(max-width:860px){
-    .gate-visual{display:none;}
-    .gate-card-wrap{flex:1 1 100%;}
-  }
   #appRoot{display:none;}
 
   @media (prefers-reduced-motion: reduce){
@@ -783,36 +724,7 @@
 </head>
 <body>
 
-<!-- ============================ SIGN-IN GATE ============================ -->
-<div id="authGate">
-  <div class="gate-visual">
-    <div class="gate-visual-inner">
-      <div class="logo-tile-lg" id="gateLogoTile">
-        <img src="https://kappachakkakandhari.com/wp-content/uploads/2024/03/logo.png" alt="Kappa Chakka Kandhari Logo" id="gateLogoImg">
-        <span class="logo-fallback-lg" aria-hidden="true">KCK</span>
-      </div>
-      <div class="gate-visual-title hd">Kappa Chakka Kandhari</div>
-      <div class="gate-visual-sub hd">Sales Dashboard</div>
-    </div>
-  </div>
-  <div class="gate-card-wrap">
-    <div class="gate-card">
-      <div class="gate-sub hd">Sign in to continue</div>
-      <form id="gateForm" class="gate-form">
-        <label class="gate-label" for="gateEmail">Email</label>
-        <input class="gate-input" type="email" id="gateEmail" autocomplete="username" required>
-        <label class="gate-label" for="gatePassword">Password</label>
-        <input class="gate-input" type="password" id="gatePassword" autocomplete="current-password" required>
-        <div class="gate-error" id="gateError" hidden>Incorrect email or password.</div>
-        <div class="gate-status" id="gateStatus" hidden>Connecting…</div>
-        <button class="action-btn hd" type="submit" id="gateSubmitBtn">Log In</button>
-      </form>
-      <div class="gate-footer">
-        Powered By <a href="https://gsvassociates.com/" target="_blank" rel="noopener">GSV Associates LLP</a>
-      </div>
-    </div>
-  </div>
-</div>
+<div id="bootStatus" style="padding:40px;color:#6B5E54;text-align:center;">Loading dashboard…</div>
 
 <div id="appRoot">
 
@@ -822,7 +734,7 @@
     <div class="hdr-top">
       <div class="brand">
         <div class="logo-tile" id="logoTile">
-          <img src="https://kappachakkakandhari.com/wp-content/uploads/2024/03/logo.png" alt="Kappa Chakka Kandhari Logo" id="logoImg">
+          <img src="/static/logo.png" alt="Kappa Chakka Kandhari Logo" id="logoImg">
           <span class="logo-fallback" aria-hidden="true">KCK</span>
         </div>
         <div class="company-name hd">Kappa Chakka Kandhari</div>
@@ -919,8 +831,15 @@
           <button class="action-btn ghost" id="chooseZipBtn" type="button">Choose Zip File…</button>
         </div>
       </div>
+      <div class="input-status" style="margin-top:10px;">
+        Large export taking too long or failing to upload? Ask your administrator
+        for the local prepare tool - it does the slow part on your own computer
+        and produces a small .json file that uploads instantly.
+        <button class="action-btn ghost" id="chooseJsonBtn" type="button" style="margin-left:8px;">Choose JSON File…</button>
+      </div>
       <input type="file" id="folderInput" webkitdirectory directory multiple hidden>
       <input type="file" id="zipInput" accept=".zip,application/zip,application/x-zip-compressed" multiple hidden>
+      <input type="file" id="jsonInput" accept=".json,application/json" hidden>
       <div class="input-status" id="inputStatus"></div>
       <div class="input-preview" id="inputPreview" hidden></div>
       <div class="modal-actions" id="inputActions" hidden>
@@ -945,6 +864,8 @@
       </div>
       <div id="clearAllConfirm" class="clear-all-confirm" hidden>
         <p><b>This permanently deletes every uploaded bill, dish sale, discount, and this history log — for everyone.</b> This cannot be undone.</p>
+        <label class="gate-label" for="clearAllPassword" style="color:#6B5E54;">Re-enter your password to confirm</label>
+        <input type="password" id="clearAllPassword" autocomplete="current-password" style="display:block;margin:6px 0 10px;padding:6px 8px;border:1px solid #E8DECC;border-radius:4px;">
         <div class="modal-actions">
           <button class="action-btn ghost" id="clearAllCancelBtn" type="button">Cancel</button>
           <button class="action-btn danger" id="clearAllConfirmBtn" type="button">Yes, delete everything</button>
@@ -1361,7 +1282,7 @@ function applyDashboardData(raw){
 
   /* The custom-date-range calendar needs to navigate across EVERY month that
      actually has data (e.g. June and July both stored) - meta.dataStart/
-     dataEnd already span everything ever uploaded too (see backend/app.py's
+     dataEnd already span everything ever uploaded too (see the server's
      recompute_meta_dates() call after each upload), but deriving the
      calendar's min/max directly from the bills actually loaded avoids
      depending on that round-tripping exactly. */
@@ -1383,15 +1304,20 @@ function applyDashboardData(raw){
    itself). Retrying a transient failure here a few times means a GET made
    right after a big upload doesn't surface that raw parse error - or get
    mistaken for the upload having failed, when it actually already succeeded. */
+// Same-origin fetches carry the HttpOnly session cookie automatically; a 401
+// means the session expired (or was never valid), so reload into the login page.
+function sessionExpired(){ location.reload(); }
+
 async function fetchJson(url, { attempts = 6, delayMs = 5000 } = {}){
   for (let attempt = 1; attempt <= attempts; attempt++){
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, {});
       let body;
       try { body = await res.json(); }
       catch {
         throw Object.assign(new Error(`${url} returned ${res.status} with a non-JSON response - it may still be waking up`), { transient:true });
       }
+      if (res.status === 401){ sessionExpired(); throw new Error("Session expired"); }
       if (!res.ok){
         throw Object.assign(new Error(body.detail || `${url} returned ${res.status}`), { transient: res.status >= 500 });
       }
@@ -1403,7 +1329,7 @@ async function fetchJson(url, { attempts = 6, delayMs = 5000 } = {}){
   }
 }
 
-/* Fetches the full dataset from the backend API (see backend/app.py) and
+/* Fetches the full dataset from the backend API and
    reshapes it into the DASHBOARD_DATA-like object applyDashboardData expects.
    Called once at startup by startApp(), below. */
 async function loadDashboardData(){
@@ -2735,7 +2661,7 @@ function applyDataset(raw){
 }
 
 /* ---- Input UI: uploads the raw "Posist Report" folder to the backend
-   (POST /api/upload, see backend/app.py), which parses it with the same
+   (POST /api/upload), which parses it with the same
    logic as build_dashboard_data.py and upserts bills/sales/discounts into
    its JSON store - then this refetches everything so the dashboard (and
    every other viewer hitting the same backend) reflects it immediately. ---- */
@@ -2746,10 +2672,15 @@ const inputActions = document.getElementById("inputActions");
 const dropZone = document.getElementById("dropZone");
 const folderInput = document.getElementById("folderInput");
 const zipInput = document.getElementById("zipInput");
+const jsonInput = document.getElementById("jsonInput");
 const uploadBtn = document.getElementById("uploadBtn");
 const clearFilesBtn = document.getElementById("clearFilesBtn");
 const viewDashboardBtn = document.getElementById("viewDashboardBtn");
 let selectedEntries = []; // [{file, relativePath}]
+// A pre-parsed JSON file prepared locally (pre-parsed) -
+// mutually exclusive with selectedEntries: picking one clears the other,
+// since they go to two different endpoints (see uploadBtn's handler).
+let selectedJsonFile = null;
 let lastUploadMonths = null; // ["YYYY-MM", ...] touched by the most recent successful upload
 
 /* drag-and-drop can hand us a mix of loose files and whole folders; walk any
@@ -2789,8 +2720,19 @@ async function getEntriesFromDataTransfer(dataTransfer){
   return out;
 }
 
+function selectJsonFile(file){
+  selectedEntries = [];
+  selectedJsonFile = file;
+  lastUploadMonths = null;
+  showUploadControls();
+  inputStatus.textContent = `Pre-parsed file selected: ${file.name} (${(file.size/1024).toFixed(0)} KB).`;
+  inputActions.hidden = false;
+  uploadBtn.disabled = false;
+}
+
 function addSelectedEntries(rawEntries){
   const usable = rawEntries.filter(e => /\.(xlsx|zip)$/i.test(e.file.name));
+  selectedJsonFile = null;
   selectedEntries = selectedEntries.concat(usable);
   // picking new files always means "about to upload again" - reset out of
   // whatever "just finished uploading" button state a prior upload left
@@ -2815,6 +2757,7 @@ function showUploadControls(){
 }
 function clearSelection(){
   selectedEntries = [];
+  selectedJsonFile = null;
   lastUploadMonths = null;
   inputStatus.textContent = "Nothing selected.";
   inputPreview.hidden = true;
@@ -2827,6 +2770,7 @@ function closeInputModal(){
   clearSelection();
   folderInput.value = "";
   zipInput.value = "";
+  jsonInput.value = "";
   dropZone.classList.remove("drag-over");
 }
 /* A full page reload (not just re-fetching data) so a tab left open from
@@ -2857,11 +2801,21 @@ zipInput.addEventListener("change", () => {
   addSelectedEntries(Array.from(zipInput.files).map(f => ({ file:f, relativePath:f.name })));
   zipInput.value = "";
 });
+document.getElementById("chooseJsonBtn").addEventListener("click", e => { e.stopPropagation(); jsonInput.click(); });
+jsonInput.addEventListener("change", () => {
+  if (jsonInput.files[0]) selectJsonFile(jsonInput.files[0]);
+  jsonInput.value = "";
+});
 ["dragenter", "dragover"].forEach(evt => dropZone.addEventListener(evt, e => { e.preventDefault(); dropZone.classList.add("drag-over"); }));
 ["dragleave", "dragend"].forEach(evt => dropZone.addEventListener(evt, e => { e.preventDefault(); dropZone.classList.remove("drag-over"); }));
 dropZone.addEventListener("drop", async e => {
   e.preventDefault();
   dropZone.classList.remove("drag-over");
+  const dropped = Array.from(e.dataTransfer.files || []);
+  if (dropped.length === 1 && /\.json$/i.test(dropped[0].name)){
+    selectJsonFile(dropped[0]);
+    return;
+  }
   inputStatus.textContent = "Reading dropped items…";
   addSelectedEntries(await getEntriesFromDataTransfer(e.dataTransfer));
 });
@@ -2897,12 +2851,45 @@ async function attemptUpload(form){
   return body;
 }
 
+/* Same retry-on-transient-failure contract as attemptUpload(), but for a
+   pre-parsed JSON file prepared locally - see
+   /api/upload-json. Sends the
+   file's own JSON text straight through as the request body. */
+async function attemptUploadJson(jsonFile){
+  const text = await jsonFile.text();
+  let res;
+  try {
+    res = await fetch("/api/upload-json", {
+      method: "POST",
+      body: text,
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (networkErr){
+    networkErr.transient = true;
+    throw networkErr;
+  }
+  let body;
+  try { body = await res.json(); }
+  catch {
+    const err = new Error(`Server returned ${res.status} with a non-JSON response - it may still be waking up`);
+    err.transient = true;
+    throw err;
+  }
+  if (!res.ok){
+    const err = new Error(body.detail || `Server returned ${res.status}`);
+    err.transient = res.status >= 500;
+    throw err;
+  }
+  return body;
+}
+
 uploadBtn.addEventListener("click", async () => {
-  if (!selectedEntries.length) return;
+  if (!selectedEntries.length && !selectedJsonFile) return;
   uploadBtn.disabled = true;
   inputPreview.hidden = true;
-  const form = new FormData();
-  selectedEntries.forEach(e => form.append("files", e.file, e.relativePath));
+  const usingJson = !!selectedJsonFile;
+  const form = usingJson ? null : new FormData();
+  if (form) selectedEntries.forEach(e => form.append("files", e.file, e.relativePath));
   // 6 attempts x 6s between them (~30s of retry buffer, on top of each
   // attempt's own time) - seen in practice needing more than the original
   // 3 attempts x 4s covered, since a cold Render instance plus a cold
@@ -2912,10 +2899,10 @@ uploadBtn.addEventListener("click", async () => {
     let body;
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++){
       inputStatus.textContent = attempt === 1
-        ? "Uploading and parsing…"
+        ? "Uploading…"
         : `Server seems to be waking up - retrying (${attempt}/${MAX_ATTEMPTS})…`;
       try {
-        body = await attemptUpload(form);
+        body = usingJson ? await attemptUploadJson(selectedJsonFile) : await attemptUpload(form);
         break;
       } catch (err){
         if (!err.transient || attempt === MAX_ATTEMPTS) throw err;
@@ -2934,6 +2921,7 @@ uploadBtn.addEventListener("click", async () => {
     // being reported as "Upload failed" (misleading - nothing needs re-
     // uploading, just a page reload once the backend catches up).
     selectedEntries = [];
+    selectedJsonFile = null;
     lastUploadMonths = [...new Set([...Object.keys(body.bills), ...Object.keys(body.sales), ...Object.keys(body.discounts)])].sort();
     clearFilesBtn.hidden = true;
     uploadBtn.hidden = true;
@@ -2951,7 +2939,7 @@ uploadBtn.addEventListener("click", async () => {
     console.error("Upload failed", err);
     inputStatus.textContent = "Upload failed: " + err.message;
   } finally {
-    uploadBtn.disabled = selectedEntries.length === 0;
+    uploadBtn.disabled = selectedEntries.length === 0 && !selectedJsonFile;
   }
 });
 
@@ -2984,7 +2972,7 @@ function viewMonthsInDashboard(months){
 viewDashboardBtn.addEventListener("click", () => viewMonthsInDashboard(lastUploadMonths));
 
 /* ---- Upload History: lists every past /api/upload call (GET /api/upload-
-   history, see backend/app.py) - when it happened, which files were sent,
+   history) - when it happened, which files were sent,
    which months it replaced, and how many rows landed in each dataset. ---- */
 const historyModalOverlay = document.getElementById("historyModalOverlay");
 const historyList = document.getElementById("historyList");
@@ -2994,7 +2982,7 @@ function closeHistoryModal(){ historyModalOverlay.hidden = true; }
 async function refreshUploadHistory(){
   historyList.innerHTML = `<p class="input-status">Loading…</p>`;
   try {
-    const res = await fetch("/api/upload-history");
+    const res = await fetch("/api/upload-history", {});
     if (!res.ok) throw new Error(`Server returned ${res.status}`);
     const entries = await res.json();
     if (!entries.length){
@@ -3067,8 +3055,17 @@ clearAllConfirmBtn.addEventListener("click", async () => {
   clearAllConfirmBtn.disabled = true;
   clearAllConfirmBtn.textContent = "Deleting…";
   try {
-    const res = await fetch("/api/clear-all", { method: "POST" });
-    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    const res = await fetch("/api/clear-all", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: document.getElementById("clearAllPassword").value }),
+    });
+    if (!res.ok) {
+      let detail = `Server returned ${res.status}`;
+      try { detail = (await res.json()).detail || detail; } catch {}
+      throw new Error(detail);
+    }
+    document.getElementById("clearAllPassword").value = "";
     clearAllConfirm.hidden = true;
     closeHistoryModal();
     applyDataset(await loadDashboardData());
@@ -3084,7 +3081,7 @@ clearAllConfirmBtn.addEventListener("click", async () => {
 
 /* ---- Delete Month: wipes one month's data from just the dataset(s) the
    client picks (e.g. only Cancelled KOTs for 2026-04), via POST
-   /api/delete-month (see backend/app.py). For when a client's source file
+   /api/delete-month. For when a client's source file
    changed after they'd already uploaded it and they want the old month's
    data gone - re-uploading the corrected report would also cleanly replace
    it, but this lets them clear it out on its own first. Same inline
@@ -3243,104 +3240,43 @@ window.addEventListener("scroll", () => {
   });
 }, { passive:true });
 
-/* ---- admin/viewer login gate ----
-   NOTE: this checks the password in the browser, so it is not real security —
-   anyone who views this page's source can read the emails/passwords below.
-   It only keeps out casual visitors. Swap for Netlify Identity (or a real backend)
-   before this ever protects data you actually need to keep private.
-
-   Two roles share this one gate, both hitting the same shared backend data:
-   - "admin" can upload data and see Upload History, on top of everything below.
-   - "viewer" gets the same interactive dashboard - same tabs, period, outlet,
-     day-type filters, all freely usable - just without the Input/History
-     buttons, since uploading and reviewing upload history stays admin-only. */
-const ADMIN_EMAIL = "admin@gsvassociates.com";
-const ADMIN_PASSWORD = "GSVllp@2026!";
-const USER_EMAIL = "user@gsvassociates.com";
-const USER_PASSWORD = "GSV@2026";
-const authGate = document.getElementById("authGate");
+/* ---- session / role ----
+   The server only sends this page to a signed-in user (see "/" in the backend);
+   there are no credentials in this file. /api/me says which role the session
+   has so admin-only buttons can be hidden for viewers - the server enforces the
+   same rule on every request regardless, so this is only cosmetic. */
 const appRoot = document.getElementById("appRoot");
-const gateForm = document.getElementById("gateForm");
-const gateError = document.getElementById("gateError");
-const gateStatus = document.getElementById("gateStatus");
-const gateSubmitBtn = document.getElementById("gateSubmitBtn");
-let appStarted = false;
-
-function setGateLoading(loading){
-  gateSubmitBtn.disabled = loading;
-  gateSubmitBtn.textContent = loading ? "Logging in…" : "Log In";
-  gateStatus.hidden = !loading;
-  if (loading) gateStatus.textContent = "Connecting… this can take up to a minute if the server was idle.";
-}
-
-function currentRole(){ return sessionStorage.getItem("kckRole") || "admin"; }
+const bootStatus = document.getElementById("bootStatus");
+let SESSION_ROLE = "viewer";
 
 function applyRoleUI(role){
-  const viewer = role === "viewer";
+  const viewer = role !== "admin";
   document.getElementById("openInputBtn").style.display = viewer ? "none" : "";
   document.getElementById("openHistoryBtn").style.display = viewer ? "none" : "";
 }
 
 async function startApp(){
-  if (appStarted) return;
-  appStarted = true;
-  setGateLoading(true);
   let raw;
   try {
+    SESSION_ROLE = (await fetchJson("/api/me")).role;
     raw = await loadDashboardData();
   } catch (err) {
     console.error("Failed to load dashboard data from the API", err);
-    appStarted = false;
-    setGateLoading(false);
-    gateError.textContent = "Could not load dashboard data - is the backend server running?";
-    gateError.hidden = false;
+    bootStatus.textContent = "Could not load dashboard data - is the backend server running?";
     return;
   }
-  setGateLoading(false);
   applyDashboardData(raw);
   ACTIVE_RAW_DATA = raw;
-  authGate.style.display = "none";
+  bootStatus.style.display = "none";
   appRoot.style.display = "block";
   updateHeaderMeta();
-  applyRoleUI(currentRole());
+  applyRoleUI(SESSION_ROLE);
   renderAll(); // deferred until visible so Chart.js measures a real (non-zero) canvas size
 }
-function showGate(){
-  appStarted = false;
-  authGate.style.display = "flex";
-  appRoot.style.display = "none";
-}
-// Admin sessions stay logged in across a refresh (convenience while actively
-// managing data); viewer sessions do not - they must sign in again every
-// time the page loads, so a shared/public viewer login doesn't sit
-// permanently authenticated in someone's browser.
-if (sessionStorage.getItem("kckAuthed") === "1" && sessionStorage.getItem("kckRole") !== "viewer"){
-  startApp();
-} else if (sessionStorage.getItem("kckRole") === "viewer"){
-  sessionStorage.removeItem("kckAuthed");
-  sessionStorage.removeItem("kckRole");
-}
-gateForm.addEventListener("submit", e => {
-  e.preventDefault();
-  const email = document.getElementById("gateEmail").value.trim().toLowerCase();
-  const password = document.getElementById("gatePassword").value;
-  let role = null;
-  if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) role = "admin";
-  else if (email === USER_EMAIL.toLowerCase() && password === USER_PASSWORD) role = "viewer";
-  if (role){
-    sessionStorage.setItem("kckAuthed", "1");
-    sessionStorage.setItem("kckRole", role);
-    gateError.hidden = true;
-    startApp();
-  } else {
-    gateError.hidden = false;
-  }
-});
-document.getElementById("logoutBtn").addEventListener("click", () => {
-  sessionStorage.removeItem("kckAuthed");
-  sessionStorage.removeItem("kckRole");
-  gateForm.reset();
-  showGate();
+startApp();
+document.getElementById("logoutBtn").addEventListener("click", async () => {
+  try { await fetch("/api/logout", { method: "POST" }); } catch {}
+  location.reload();
 });
 </script>
 </body>

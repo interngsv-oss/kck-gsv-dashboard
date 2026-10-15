@@ -1,0 +1,22 @@
+# The frontend posts every uploaded file under the same multipart field name
+# ("files", no "[]") - see lib/multipart.php's comment for why this directive
+# is required: it stops PHP's own $_FILES/$_POST auto-parsing (which would
+# silently keep only the last same-named file) and leaves the raw request
+# body on php://input for index.php to parse itself, keeping every file.
+php_value enable_post_data_reading 0
+
+Options -Indexes
+
+# Nothing but index.php (the router) and static/ should ever be fetched by URL.
+# The dashboard HTML in particular must only be served by index.php after the
+# session check - fetching it directly would bypass the login.
+<FilesMatch "^(config\.php|config\.example\.php|composer\.json|composer\.lock|schema\.sql|login\.html|kck_sales_dashboard_V11\.html|\.gitignore|\.htaccess)$">
+    Require all denied
+</FilesMatch>
+
+RewriteEngine On
+RewriteRule ^(lib|vendor)(/|$) - [R=404,L]
+RewriteRule (^|/)\. - [R=404,L]
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [L]

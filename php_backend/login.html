@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Sign in | Kappa Chakka Kandhari</title>
+<link rel="icon" href="/static/favicon.png">
+<style>
+  :root{
+    --brand-dark:#000000;      /* header background — logo's black field */
+    --brand-dark-2:#1B1512;    /* header inputs */
+    --brand-line:#3B322B;      /* header borders */
+    --brand-taupe:#8C7A6B;     /* the "K" in KAPPA */
+    --brand-gold:#E4B633;      /* the "C" in CHAKKA */
+    --brand-orange:#D25E1D;    /* the "K" in KANDHARI */
+    --brand-red:#9E2B1C;       /* cancellations / alerts, kept in the same warm family */
+
+    --on-dark:#F3EFE6;
+    --on-dark-soft:#C9C0B4;
+    --page:#F8F4EC;
+    --panel:#FFFFFF;
+    --rule:#E8DECC;
+    --rule-soft:#F1EADD;
+    --gold-text:#8A6A12;
+    --orange-text:#A34614;
+    --taupe-text:#6C5C4F;
+    --gold-soft:#FBF1D8;
+    --red-soft:#F3DBD4;
+    --ink:#2B211B;
+    --ink-soft:#6B5E54;
+    --ink-mute:#85776C;
+
+    --head-font:"Palatino Linotype","Book Antiqua",Palatino,Georgia,"Times New Roman",serif;
+    --body-font:"Segoe UI","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  html{scroll-behavior:smooth;}
+  body{
+    background:var(--page);
+    color:var(--ink);
+    font-family:var(--body-font);
+    font-size:14px;
+    line-height:1.5;
+    font-variant-numeric:tabular-nums;
+    -webkit-font-smoothing:antialiased;
+  }
+  button,select,input{font-family:inherit;}
+  :focus-visible{outline:2px solid var(--brand-gold);outline-offset:2px;}
+
+  .hd{font-family:var(--head-font);font-weight:700;font-style:italic;letter-spacing:.1px;}
+  .action-btn{
+    display:inline-flex;align-items:center;gap:6px;
+    padding:4px 12px;
+    border-radius:4px;
+    border:1px solid var(--brand-gold);
+    background:var(--brand-gold);
+    color:var(--brand-dark);
+    font-size:13px;line-height:1.2;font-weight:700;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  .action-btn:hover{background:#F0C453;}
+  #authGate{
+    position:fixed;inset:0;z-index:500;
+    display:flex;
+    background:var(--brand-dark);
+  }
+  .gate-visual{
+    flex:1 1 56%;
+    position:relative;
+    display:flex;align-items:center;justify-content:center;
+    padding:40px;
+    background:
+      radial-gradient(circle at 22% 20%, rgba(228,182,51,.16), transparent 55%),
+      radial-gradient(circle at 82% 78%, rgba(140,122,107,.16), transparent 50%),
+      var(--brand-dark);
+    border-right:1px solid var(--brand-line);
+    overflow:hidden;
+  }
+  .gate-visual::after{
+    content:"";position:absolute;left:0;right:0;bottom:0;height:6px;
+    background:repeating-linear-gradient(90deg, var(--brand-gold) 0 22px, transparent 22px 30px);
+    opacity:.55;
+  }
+  .gate-visual-inner{max-width:440px;text-align:center;}
+  .logo-tile-lg{
+    width:300px;height:300px;margin:0 auto 28px;
+    display:flex;align-items:center;justify-content:center;
+    border:1px solid var(--brand-line);border-radius:50%;
+    background:rgba(228,182,51,.06);
+    overflow:hidden;
+  }
+  .logo-tile-lg img{max-width:240px;max-height:240px;width:auto;height:auto;display:block;}
+  .logo-fallback-lg{display:none;font-family:var(--head-font);font-style:italic;font-weight:700;font-size:84px;color:var(--brand-gold);}
+  .logo-tile-lg.no-img img{display:none;}
+  .logo-tile-lg.no-img .logo-fallback-lg{display:block;}
+  .gate-visual-title{font-size:32px;color:var(--brand-gold);margin-bottom:12px;line-height:1.15;}
+  .gate-visual-sub{font-size:17px;color:var(--on-dark-soft);}
+  .gate-card-wrap{flex:1 1 44%;display:flex;align-items:center;justify-content:center;padding:40px 24px;}
+  .gate-card{width:100%;max-width:340px;text-align:left;}
+  .gate-card .gate-sub{color:var(--on-dark);font-size:26px;margin-bottom:28px;}
+  .gate-form{display:flex;flex-direction:column;gap:10px;}
+  .gate-label{font-size:12px;color:var(--on-dark-soft);}
+  .gate-input{
+    font-size:14px;padding:8px 10px;border-radius:4px;
+    border:1px solid var(--brand-line);background:var(--brand-dark-2);color:var(--on-dark);
+    font-family:var(--body-font);
+  }
+  .gate-input:focus{border-color:var(--brand-gold);outline:none;}
+  .gate-error{color:#E88A78;font-size:13px;}
+  .gate-status{color:var(--on-dark-soft);font-size:13px;}
+  #gateSubmitBtn:disabled{opacity:.65;cursor:default;}
+  .gate-card .action-btn{font-size:14px;padding:9px 22px;margin-top:6px;width:100%;justify-content:center;}
+  .gate-footer{margin-top:28px;font-size:15.5px;color:var(--on-dark-soft);display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .gate-footer a{color:var(--brand-taupe);}
+  @media(max-width:860px){
+    .gate-visual{display:none;}
+    .gate-card-wrap{flex:1 1 100%;}
+  }
+</style>
+</head>
+<body>
+<div id="authGate">
+  <div class="gate-visual">
+    <div class="gate-visual-inner">
+      <div class="logo-tile-lg" id="gateLogoTile">
+        <img src="/static/logo.png" alt="Kappa Chakka Kandhari Logo" id="gateLogoImg">
+        <span class="logo-fallback-lg" aria-hidden="true">KCK</span>
+      </div>
+      <div class="gate-visual-title hd">Kappa Chakka Kandhari</div>
+      <div class="gate-visual-sub hd">Sales Dashboard</div>
+    </div>
+  </div>
+  <div class="gate-card-wrap">
+    <div class="gate-card">
+      <div class="gate-sub hd">Sign in to continue</div>
+      <form id="gateForm" class="gate-form">
+        <label class="gate-label" for="gateEmail">Email</label>
+        <input class="gate-input" type="email" id="gateEmail" autocomplete="username" required>
+        <label class="gate-label" for="gatePassword">Password</label>
+        <input class="gate-input" type="password" id="gatePassword" autocomplete="current-password" required>
+        <div class="gate-error" id="gateError" hidden>Incorrect email or password.</div>
+        <div class="gate-status" id="gateStatus" hidden>Connecting…</div>
+        <button class="action-btn hd" type="submit" id="gateSubmitBtn">Log In</button>
+      </form>
+      <div class="gate-footer">
+        Powered By <a href="https://gsvassociates.com/" target="_blank" rel="noopener">GSV Associates LLP</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* Sign-in page only - holds no credentials and no dashboard code. The server
+   checks the email/password and sets an HttpOnly session cookie; the browser
+   then reloads "/" and the server (not this script) decides what to serve. */
+const gateImg = document.getElementById("gateLogoImg");
+const markNoLogo = () => document.getElementById("gateLogoTile").classList.add("no-img");
+gateImg.addEventListener("error", markNoLogo);
+if (gateImg.complete && !gateImg.naturalWidth) markNoLogo();
+
+const gateForm = document.getElementById("gateForm");
+const gateError = document.getElementById("gateError");
+const gateStatus = document.getElementById("gateStatus");
+const gateSubmitBtn = document.getElementById("gateSubmitBtn");
+
+gateForm.addEventListener("submit", async e => {
+  e.preventDefault();
+  gateError.hidden = true;
+  gateSubmitBtn.disabled = true;
+  gateSubmitBtn.textContent = "Logging in\u2026";
+  gateStatus.hidden = false;
+  gateStatus.textContent = "Connecting\u2026 this can take up to a minute if the server was idle.";
+  try {
+    const res = await fetch("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: document.getElementById("gateEmail").value.trim(),
+        password: document.getElementById("gatePassword").value,
+      }),
+    });
+    if (res.ok) { location.replace("/"); return; }
+    let detail = "Could not sign in.";
+    try { detail = (await res.json()).detail || detail; } catch {}
+    gateError.textContent = detail;
+    gateError.hidden = false;
+  } catch (err) {
+    gateError.textContent = "Could not reach the server - please try again.";
+    gateError.hidden = false;
+  }
+  gateStatus.hidden = true;
+  gateSubmitBtn.disabled = false;
+  gateSubmitBtn.textContent = "Log In";
+});
+</script>
+</body>
+</html>

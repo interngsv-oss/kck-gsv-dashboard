@@ -276,8 +276,12 @@ _KOT_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 def _classify_cancel_reason(comment):
     """Map a cancelled item's own free-text 'Comment' cell to one of the
-    dashboard's fixed reason buckets (storage.DEFAULT reasons list)."""
-    c = (comment or "").strip()
+    dashboard's fixed reason buckets (storage.DEFAULT reasons list).
+    Posist's export can hand this a number instead of text (e.g. someone
+    typed a raw number into that column, or Excel auto-typed a numeric-
+    looking comment) - openpyxl then reads it as an int/float, not a str,
+    which .strip() can't handle."""
+    c = "" if comment is None else str(comment).strip()
     if c in ("", "-"):
         return "Not Specified"
     cl = c.lower()

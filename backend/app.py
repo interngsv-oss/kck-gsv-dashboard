@@ -16,17 +16,25 @@ Endpoints:
     GET  /                                       the dashboard itself (kck_sales_dashboard_V11.html)
 """
 
+import base64
+import hashlib
+import hmac
+import json
+import logging
 import os
+import secrets
+import time
 import shutil
 import tempfile
 import traceback
+import re
 import zipfile
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException, Request, UploadFile, File
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile, File
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 
 import parsers
 
@@ -44,18 +52,132 @@ else:
 # as part of this repo (the original also still lives one level up from
 # kck_dashboard_pipeline/, for local editing convenience) - prefer the local
 # copy when both exist, since that's the one that actually ships.
-_LOCAL_HTML = os.path.join(os.path.dirname(__file__), "kck_sales_dashboard_V11.html")
-_DEV_HTML = os.path.join(os.path.dirname(__file__), "..", "..", "kck_sales_dashboard_V11.html")
-DASHBOARD_HTML_PATH = _LOCAL_HTML if os.path.exists(_LOCAL_HTML) else _DEV_HTML
+_HERE = os.path.dirname(__file__)
+DASHBOARD_HTML_PATH = os.path.join(_HERE, "kck_sales_dashboard_V11.html")
+LOGIN_HTML_PATH = os.path.join(_HERE, "login.html")
+STATIC_DIR = os.path.join(_HERE, "static")
 
-app = FastAPI(title="KCK Sales Dashboard API")
+# No docs/openapi pages (they'd list every route to an anonymous visitor), and
+# no CORS middleware: the dashboard and its API are same-origin, and a wildcard
+# CORS policy would only let other sites' scripts talk to the API.
+app = FastAPI(title="KCK Sales Dashboard API", docs_url=None, redoc_url=None, openapi_url=None)
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+audit_log = logging.getLogger("kck.audit")
+audit_log.setLevel(logging.INFO)
+if not audit_log.handlers:
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter("%(asctime)s AUDIT %(message)s"))
+    audit_log.addHandler(_h)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+
+# Real server-side sign-in. POST /api/login checks the email/password HERE (no
+# credentials ever ship to the browser) and sets an HttpOnly, Secure,
+# SameSite=Strict cookie holding a signed, expiring session token. "/" only
+# serves the dashboard when that cookie is valid (otherwise just the login
+# page), and every /api/ route below requires it. The passwords are real env
+# vars on the server (Render > this service > Environment), never in the repo.
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@gsvassociates.com").strip().lower()
+VIEWER_EMAIL = os.environ.get("VIEWER_EMAIL", "user@gsvassociates.com").strip().lower()
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
+VIEWER_PASSWORD = os.environ.get("VIEWER_PASSWORD")
+
+COOKIE_NAME = "kck_session"
+SESSION_TTL_SECONDS = 8 * 60 * 60          # short-lived: sign in again after 8 hours
+MAX_FAILED_LOGINS = 5                       # per email AND per client IP...
+LOCKOUT_SECONDS = 15 * 60                   # ...then locked out for this long
+MAX_UPLOAD_BYTES = 200 * 1024 * 1024        # per request body
+MAX_UNZIPPED_BYTES = 1024 * 1024 * 1024     # zip-bomb guard
+ALLOWED_UPLOAD_EXTENSIONS = (".xlsx", ".xls", ".zip")
+
+
+def _session_key() -> bytes:
+    # SESSION_SECRET is preferred; otherwise derive from the two passwords, so
+    # changing a password also invalidates every existing session.
+    secret = os.environ.get("SESSION_SECRET") or f"{ADMIN_PASSWORD}|{VIEWER_PASSWORD}"
+    return hashlib.sha256(("kck-session|" + secret).encode()).digest()
+
+
+def _b64(b: bytes) -> str:
+    return base64.urlsafe_b64encode(b).decode().rstrip("=")
+
+
+def _unb64(s: str) -> bytes:
+    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+
+
+_revoked_sessions: Dict[str, float] = {}    # jti -> expiry; logout adds here
+_failed_logins: Dict[str, List[float]] = {}  # "ip:..."/"email:..." -> failure times
+
+
+def _make_session(role: str, email: str) -> str:
+    payload = _b64(json.dumps({"r": role, "e": email, "x": int(time.time()) + SESSION_TTL_SECONDS,
+                               "j": secrets.token_hex(8)}).encode())
+    sig = _b64(hmac.new(_session_key(), payload.encode(), hashlib.sha256).digest())
+    return f"{payload}.{sig}"
+
+
+def _read_session(token: Optional[str]) -> Optional[Dict[str, Any]]:
+    if not token or "." not in token or not ADMIN_PASSWORD or not VIEWER_PASSWORD:
+        return None
+    payload, _, sig = token.partition(".")
+    expected = _b64(hmac.new(_session_key(), payload.encode(), hashlib.sha256).digest())
+    if not hmac.compare_digest(sig, expected):
+        return None
+    try:
+        data = json.loads(_unb64(payload))
+    except ValueError:
+        return None
+    now = time.time()
+    if data.get("x", 0) < now or data.get("j") in _revoked_sessions:
+        return None
+    for jti in [j for j, exp in _revoked_sessions.items() if exp < now]:
+        del _revoked_sessions[jti]
+    return data
+
+
+def _client_ip(request: Request) -> str:
+    # Render puts the real client first in X-Forwarded-For.
+    fwd = request.headers.get("x-forwarded-for")
+    return fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "?")
+
+
+def _lockout_remaining(keys: List[str]) -> int:
+    now = time.time()
+    worst = 0
+    for k in keys:
+        recent = [t for t in _failed_logins.get(k, []) if t > now - LOCKOUT_SECONDS]
+        _failed_logins[k] = recent
+        if len(recent) >= MAX_FAILED_LOGINS:
+            worst = max(worst, int(recent[0] + LOCKOUT_SECONDS - now))
+    return worst
+
+
+def current_session(request: Request) -> Optional[Dict[str, Any]]:
+    return _read_session(request.cookies.get(COOKIE_NAME))
+
+
+def require_viewer(request: Request) -> str:
+    """Accepts either role; returns which one the session has. Used as the
+    Depends() for every read endpoint - both admin and viewer can view data."""
+    if not ADMIN_PASSWORD or not VIEWER_PASSWORD:
+        raise HTTPException(503, "Server auth isn't configured - set ADMIN_PASSWORD and VIEWER_PASSWORD "
+                                  "in the server's environment variables.")
+    session = current_session(request)
+    if not session:
+        raise HTTPException(401, "Not authenticated")
+    request.state.actor = f"{session['e']} ({session['r']}) from {_client_ip(request)}"
+    return session["r"]
+
+
+def require_admin(request: Request, role: str = Depends(require_viewer)) -> str:
+    """Used as the Depends() for every data-mutating endpoint (upload, edit,
+    delete, the one-time migrate-* fix-ups) - viewer sessions authenticate
+    but aren't allowed to change anything. Every admin action is written to
+    the server log (who, what, when) as an audit trail."""
+    if role != "admin":
+        raise HTTPException(403, "This action requires an admin account.")
+    audit_log.info("ADMIN ACTION %s %s by %s", request.method, request.url.path, request.state.actor)
+    return role
 
 
 @app.middleware("http")
@@ -68,6 +190,18 @@ async def no_store_api_responses(request, call_next):
     response = await call_next(request)
     if request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Robots-Tag"] = "noindex, nofollow"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    # Only the pages' own inline script/styles and the three cdnjs libraries
+    # may run; nothing can frame the page.
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
+        "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; "
+        "worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+    )
     return response
 
 
@@ -107,34 +241,103 @@ def _require_key_fields(dataset: str, row: Dict[str, Any]):
 
 
 @app.api_route("/", methods=["GET", "HEAD"])
-def serve_dashboard():
-    # No-cache so every deploy is visible immediately - without this, browsers
-    # can keep showing a stale cached copy of the page after we ship a fix,
-    # which looks exactly like the fix never went live.
-    return FileResponse(DASHBOARD_HTML_PATH, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+def serve_dashboard(request: Request):
+    # The server, not the browser, decides what an anonymous visitor gets:
+    # without a valid session they receive ONLY the small login page - none of
+    # the dashboard's markup, report names or admin controls. No-store so
+    # every deploy is visible immediately and the dashboard is never cached.
+    path = DASHBOARD_HTML_PATH if current_session(request) else LOGIN_HTML_PATH
+    return FileResponse(path, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/robots.txt")
+def robots_txt():
+    return PlainTextResponse("User-agent: *\nDisallow: /\n")
+
+
+@app.api_route("/healthz", methods=["GET", "HEAD"])
+def healthz():
+    """Public, data-free liveness check for the keep-alive workflow (it still
+    touches the database so Neon stays warm too)."""
+    storage.read_meta()
+    return {"ok": True}
+
+
+@app.post("/api/login")
+async def login(request: Request):
+    if not ADMIN_PASSWORD or not VIEWER_PASSWORD:
+        raise HTTPException(503, "Server auth isn't configured.")
+    try:
+        body = await request.json()
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Invalid request.")
+    email = str(body.get("email", "")).strip().lower()
+    password = str(body.get("password", ""))
+    keys = [f"ip:{_client_ip(request)}", f"email:{email}"]
+    wait = _lockout_remaining(keys)
+    if wait:
+        raise HTTPException(429, f"Too many failed attempts. Try again in {wait // 60 + 1} minute(s).")
+    is_admin = secrets.compare_digest(email, ADMIN_EMAIL) & secrets.compare_digest(password, ADMIN_PASSWORD)
+    is_viewer = secrets.compare_digest(email, VIEWER_EMAIL) & secrets.compare_digest(password, VIEWER_PASSWORD)
+    if not (is_admin or is_viewer):
+        now = time.time()
+        for k in keys:
+            _failed_logins.setdefault(k, []).append(now)
+        audit_log.warning("FAILED LOGIN for %r from %s", email, _client_ip(request))
+        # Same generic message for a wrong email and a wrong password.
+        raise HTTPException(401, "Invalid email or password.")
+    for k in keys:
+        _failed_logins.pop(k, None)
+    role = "admin" if is_admin else "viewer"
+    audit_log.info("LOGIN %s (%s) from %s", email, role, _client_ip(request))
+    response = JSONResponse({"role": role})
+    response.set_cookie(COOKIE_NAME, _make_session(role, email), max_age=SESSION_TTL_SECONDS,
+                        httponly=True, secure=request.url.hostname not in ("localhost", "127.0.0.1"),
+                        samesite="strict", path="/")
+    return response
+
+
+@app.post("/api/logout")
+def logout(request: Request):
+    session = current_session(request)
+    if session:
+        _revoked_sessions[session["j"]] = session["x"]   # dead server-side, not just cleared in the browser
+        audit_log.info("LOGOUT %s", session["e"])
+    response = JSONResponse({"ok": True})
+    response.delete_cookie(COOKIE_NAME, path="/")
+    return response
+
+
+@app.get("/api/me")
+def me(role: str = Depends(require_viewer)):
+    return {"role": role}
 
 
 @app.api_route("/api/meta", methods=["GET", "HEAD"])
-def get_meta():
+def get_meta(role: str = Depends(require_viewer)):
     # HEAD too - uptime-monitor pings (UptimeRobot etc.) default to HEAD
     # requests, which a GET-only route rejects with 405.
     return storage.read_meta()
 
 
 @app.get("/api/upload-history")
-def get_upload_history():
+def get_upload_history(role: str = Depends(require_admin)):
     """Most-recent-first log of every /api/upload call: when it happened,
     which files were sent, and how many rows landed in each month/dataset.
-    NOTE: like /api/upload below, this must stay registered before
-    GET /api/{dataset} - Starlette matches routes in registration order, and
-    "/api/upload-history" would otherwise match "/api/{dataset}" first (with
-    dataset="upload-history") and 400 as an unknown dataset."""
+    Admin-only, same as the UI section that shows it. NOTE: like /api/upload
+    below, this must stay registered before GET /api/{dataset} - Starlette
+    matches routes in registration order, and "/api/upload-history" would
+    otherwise match "/api/{dataset}" first (with dataset="upload-history")
+    and 400 as an unknown dataset."""
     return list(reversed(storage.read_upload_history()))
 
 
 @app.get("/api/{dataset}")
 def list_rows(dataset: str, branch: Optional[str] = None,
-              from_: Optional[str] = None, to: Optional[str] = None):
+              from_: Optional[str] = None, to: Optional[str] = None,
+              role: str = Depends(require_viewer)):
     _require_dataset(dataset)
     rows = storage.read_range(dataset, from_month=from_[:7] if from_ else None,
                                to_month=to[:7] if to else None)
@@ -193,6 +396,8 @@ def _safe_extract_zip(zf: zipfile.ZipFile, dest_dir: str):
     """Extract every entry of an uploaded zip into dest_dir, rejecting any
     path that would escape it (zip-slip) the same way _safe_relpath does for
     individually-uploaded files."""
+    if sum(m.file_size for m in zf.infolist()) > MAX_UNZIPPED_BYTES:
+        raise HTTPException(400, "That zip expands to too much data.")
     for member in zf.infolist():
         parts = [p for p in member.filename.replace("\\", "/").split("/") if p not in ("", ".", "..")]
         if not parts:
@@ -207,7 +412,7 @@ def _safe_extract_zip(zf: zipfile.ZipFile, dest_dir: str):
 
 
 @app.post("/api/upload")
-async def upload_export(files: List[UploadFile] = File(...)):
+async def upload_export(request: Request, files: List[UploadFile] = File(...), role: str = Depends(require_admin)):
     """Accepts every file of a selected 'Posist Report' folder (each file's
     name carries its path within that folder) and upserts its bills/sales/
     discounts into the store.
@@ -219,6 +424,13 @@ async def upload_export(files: List[UploadFile] = File(...)):
     multipart upload."""
     if not files:
         raise HTTPException(400, "No files received.")
+    if int(request.headers.get("content-length") or 0) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "Upload is too large.")
+    # A picked folder can carry stray files (.DS_Store, notes, ...); only Excel
+    # files and zips are ever kept - anything else is dropped, never written to disk.
+    files = [f for f in files if (f.filename or "").lower().endswith(ALLOWED_UPLOAD_EXTENSIONS)]
+    if not files:
+        raise HTTPException(400, "No Excel (.xlsx/.xls) or .zip files in that upload.")
 
     with tempfile.TemporaryDirectory() as tmp:
         extract_dir = os.path.join(tmp, "extracted")
@@ -246,6 +458,16 @@ async def upload_export(files: List[UploadFile] = File(...)):
         except FileNotFoundError as e:
             raise HTTPException(400, str(e))
 
+    return _write_parsed_upload(
+        bills, sales, discounts, cancellations, missing_sections,
+        [f.filename for f in files if f.filename],
+    )
+
+
+def _write_parsed_upload(bills, sales, discounts, cancellations, missing_sections, file_names):
+    """Shared by both upload routes: the write phase is identical whether
+    the rows came from parsing real Excel files here (upload_export) or
+    were already parsed locally and sent as JSON (upload_export_json)."""
     discount_reasons = sorted({d["reason"] for d in discounts}) if discounts else None
     meta = storage.read_meta()
     if discount_reasons:
@@ -271,7 +493,7 @@ async def upload_export(files: List[UploadFile] = File(...)):
     results = storage.bulk_write_upload(
         {"bills": bills, "sales": sales, "discounts": discounts, "cancellations": cancellations},
         meta,
-        {"files": [f.filename for f in files if f.filename], "missing": missing_sections},
+        {"files": file_names, "missing": missing_sections},
     )
 
     # "Data Available" spans every month EVER uploaded, not just this one -
@@ -290,25 +512,55 @@ async def upload_export(files: List[UploadFile] = File(...)):
     }
 
 
+@app.post("/api/upload-json")
+async def upload_export_json(request: Request, payload: Dict[str, Any], role: str = Depends(require_admin)):
+    """Accepts a Posist export already parsed LOCALLY (see
+    backend/local_prepare_upload.py, which runs this exact same parsers.py
+    logic on the user's own PC) as a plain JSON body, instead of raw Excel
+    files - skips Excel parsing on the server entirely. Added after a
+    Hostinger shared-hosting deployment of this same API repeatedly
+    exhausted its resources parsing large real exports server-side; doing
+    that part locally instead sidesteps the whole class of problem, and
+    this route is just as useful here on Render for the same reason (a
+    large upload parsing faster locally than waiting on a free-tier
+    instance never hurts)."""
+    if int(request.headers.get("content-length") or 0) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "Upload is too large.")
+    for key in ("bills", "sales", "discounts", "cancellations"):
+        if key not in payload or not isinstance(payload[key], list):
+            raise HTTPException(400, f"Missing or invalid '{key}' in the uploaded JSON.")
+        if not all(isinstance(r, dict) for r in payload[key]):
+            raise HTTPException(400, f"'{key}' must be a list of row objects.")
+        # Schema check: every row needs the fields the DB keys on, in the
+        # right shape, so a hand-crafted file can't inject junk rows.
+        for r in payload[key]:
+            if not isinstance(r.get("branch"), str) or not r["branch"] or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(r.get("date", ""))):
+                raise HTTPException(400, f"'{key}' has a row with a missing branch or a date that isn't YYYY-MM-DD.")
+    return _write_parsed_upload(
+        payload["bills"], payload["sales"], payload["discounts"], payload["cancellations"],
+        payload.get("missing") or [],
+        payload.get("sourceFiles") or [],
+    )
+
+
 @app.post("/api/clear-all")
-def clear_all_data():
-    """Wipes every uploaded row and the upload history log entirely. NOTE:
-    like the rest of this app's login gate, there's no real server-side
-    auth - this just isn't wired into the admin-only UI for a viewer
-    session. Must stay registered before POST /api/{dataset} below, same
-    reasoning as POST /api/upload."""
+def clear_all_data(payload: Dict[str, Any], role: str = Depends(require_admin)):
+    """Wipes every uploaded row and the upload history log entirely. Admin
+    only, and the admin must re-enter their password (irreversible action).
+    Must stay registered before POST /api/{dataset} below, same reasoning as
+    POST /api/upload."""
+    if not secrets.compare_digest(str(payload.get("password", "")), ADMIN_PASSWORD):
+        raise HTTPException(403, "Password incorrect - nothing was deleted.")
     storage.clear_all()
     return {"cleared": True}
 
 
 @app.post("/api/delete-month")
-def delete_month_data(payload: Dict[str, Any]):
+def delete_month_data(payload: Dict[str, Any], role: str = Depends(require_admin)):
     """Wipes one month's data from just the chosen dataset(s) (e.g. only
     Cancelled KOTs for 2026-04), so a client can drop a bad month before
     re-uploading a corrected report without wiping everything else. NOTE:
-    like the rest of this app's login gate, there's no real server-side
-    auth - this just isn't wired into the admin-only UI for a viewer session.
-    Must stay registered before POST /api/{dataset} below, same reasoning as
+    Admin-only (server-enforced). Must stay registered before POST /api/{dataset} below, same reasoning as
     POST /api/upload."""
     month = payload.get("month")
     datasets = payload.get("datasets") or []
@@ -343,16 +595,14 @@ def delete_month_data(payload: Dict[str, Any]):
 
 
 @app.post("/api/migrate-discount-reasons")
-def migrate_discount_reasons():
+def migrate_discount_reasons(role: str = Depends(require_admin)):
     """One-time fix-up for discount rows uploaded before "reason" switched
     from a Discount-Type classification to parsers.discount_reason_from_remark
     (Remarks-based): recomputes "reason" for every already-stored discount
     row from its own already-stored "remarks" field (no original Excel
     files needed) and replaces meta.discountReasons with the fresh set, so
     existing months' charts catch up without anyone re-uploading anything.
-    Idempotent - safe to call more than once. NOTE: like the rest of this
-    app's login gate, there's no real server-side auth - this just isn't
-    wired into the admin-only UI for a viewer session. Must stay registered
+    Idempotent - safe to call more than once. Admin-only (server-enforced). Must stay registered
     before POST /api/{dataset} below, same reasoning as POST /api/upload."""
     rows = storage.read_range("discounts")
     for row in rows:
@@ -367,7 +617,7 @@ def migrate_discount_reasons():
 
 
 @app.post("/api/migrate-zero-sales-bills")
-def migrate_zero_sales_bills():
+def migrate_zero_sales_bills(role: str = Depends(require_admin)):
     """One-time fix-up for bills uploaded before parse_payment_report started
     excluding zero-Net-Sales rows from counting as a bill at all (Number Of
     Bills, Guests By Hour, etc. all derive from this same stored list):
@@ -375,9 +625,7 @@ def migrate_zero_sales_bills():
     every month first (not just the ones with rows left over) so a month
     that turns out to have had ONLY zero-sales rows is actually emptied,
     not left with its stale zero-sales rows untouched. Idempotent - safe to
-    call more than once. NOTE: like the rest of this app's login gate,
-    there's no real server-side auth - this just isn't wired into the
-    admin-only UI for a viewer session. Must stay registered before POST
+    call more than once. Admin-only (server-enforced). Must stay registered before POST
     /api/{dataset} below, same reasoning as POST /api/upload."""
     all_rows = storage.read_range("bills")
     kept = [r for r in all_rows if r.get("salesValue") != 0]
@@ -391,7 +639,7 @@ def migrate_zero_sales_bills():
 
 
 @app.post("/api/{dataset}")
-def create_row(dataset: str, row: Dict[str, Any]):
+def create_row(dataset: str, row: Dict[str, Any], role: str = Depends(require_admin)):
     _require_dataset(dataset)
     _require_key_fields(dataset, row)
     existing = storage.read_range(dataset)
@@ -405,7 +653,7 @@ def create_row(dataset: str, row: Dict[str, Any]):
 
 
 @app.put("/api/{dataset}")
-def update_row(dataset: str, row: Dict[str, Any]):
+def update_row(dataset: str, row: Dict[str, Any], role: str = Depends(require_admin)):
     _require_dataset(dataset)
     _require_key_fields(dataset, row)
     existing = storage.read_range(dataset)
@@ -419,7 +667,7 @@ def update_row(dataset: str, row: Dict[str, Any]):
 
 
 @app.delete("/api/{dataset}")
-def delete_row(dataset: str, key: Dict[str, Any]):
+def delete_row(dataset: str, key: Dict[str, Any], role: str = Depends(require_admin)):
     _require_dataset(dataset)
     _require_key_fields(dataset, key)
     if not storage.delete_row(dataset, key):

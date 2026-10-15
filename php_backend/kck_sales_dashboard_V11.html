@@ -1,0 +1,3283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Sales Dashboard | Kappa Chakka Kandhari</title>
+<link rel="icon" href="/static/favicon.png">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<!-- Only used by "Share" to build a real, attachable PDF (html2canvas rasterizes the
+     on-screen report, jsPDF assembles the pages) - Download Report / Excel / everything
+     else on this page still needs neither. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+  /* =====================================================================
+     BRAND COLOURS — sampled directly from the Kappa Chakka Kandhari
+     logo: black field, taupe "K", gold "C", rust-orange "K".
+     Everything on the page (header, charts, heat maps) reads from here.
+  ===================================================================== */
+  :root{
+    --brand-dark:#000000;      /* header background — logo's black field */
+    --brand-dark-2:#1B1512;    /* header inputs */
+    --brand-line:#3B322B;      /* header borders */
+    --brand-taupe:#8C7A6B;     /* the "K" in KAPPA */
+    --brand-gold:#E4B633;      /* the "C" in CHAKKA */
+    --brand-orange:#D25E1D;    /* the "K" in KANDHARI */
+    --brand-red:#9E2B1C;       /* cancellations / alerts, kept in the same warm family */
+
+    --on-dark:#F3EFE6;
+    --on-dark-soft:#C9C0B4;
+    --page:#F8F4EC;
+    --panel:#FFFFFF;
+    --rule:#E8DECC;
+    --rule-soft:#F1EADD;
+    --gold-text:#8A6A12;
+    --orange-text:#A34614;
+    --taupe-text:#6C5C4F;
+    --gold-soft:#FBF1D8;
+    --red-soft:#F3DBD4;
+    --ink:#2B211B;
+    --ink-soft:#6B5E54;
+    --ink-mute:#85776C;
+
+    --head-font:"Palatino Linotype","Book Antiqua",Palatino,Georgia,"Times New Roman",serif;
+    --body-font:"Segoe UI","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  html{scroll-behavior:smooth;}
+  body{
+    background:var(--page);
+    color:var(--ink);
+    font-family:var(--body-font);
+    font-size:14px;
+    line-height:1.5;
+    font-variant-numeric:tabular-nums;
+    -webkit-font-smoothing:antialiased;
+  }
+  button,select,input{font-family:inherit;}
+  :focus-visible{outline:2px solid var(--brand-gold);outline-offset:2px;}
+
+  /* headings: capitalised, bold, italic */
+  .hd{font-family:var(--head-font);font-weight:700;font-style:italic;letter-spacing:.1px;}
+
+  /* ============================ STICKY HEADER ============================ */
+  header.site-header{
+    position:sticky;
+    top:0;
+    z-index:50;
+    background:var(--brand-dark);
+    color:var(--on-dark);
+    box-shadow:0 2px 10px rgba(43,33,27,.18);
+  }
+  header.site-header::after{
+    content:"";
+    display:block;
+    height:8px;
+    background:linear-gradient(to bottom,
+      var(--brand-gold) 0 4px, var(--page) 4px 6px, var(--brand-gold) 6px 7px, var(--page) 7px 8px);
+  }
+  .hdr-inner{max-width:1360px;margin:0 auto;padding:0 32px 0 18px;}
+
+  /* three columns: company (left) · dashboard title/period/outlet (true centre) · data
+     available/last refreshed (right). The two outer columns share the leftover width
+     equally, so the centre block stays centred regardless of how wide either side is. */
+  .hdr-top{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
+    align-items:center;
+    gap:2px 28px;
+    padding:5px 0 4px;
+    border-bottom:1px solid var(--brand-line);
+  }
+  .brand{display:flex;align-items:center;gap:14px;min-width:0;justify-self:start;}
+  .logo-tile{
+    flex:none;
+    height:34px;
+    min-width:34px;
+    max-width:150px;
+    padding:2px;
+    background:transparent;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    overflow:hidden;
+  }
+  .logo-tile img{max-height:34px;max-width:150px;width:auto;height:auto;display:block;}
+  .logo-fallback{
+    display:none;
+    font-family:var(--head-font);font-style:italic;font-weight:700;
+    font-size:20px;color:var(--brand-gold);
+  }
+  .logo-tile.no-img img{display:none;}
+  .logo-tile.no-img .logo-fallback{display:block;}
+  .company-name{
+    min-width:0;
+    font-size:var(--brand-size,22px);
+    font-weight:700;
+    color:var(--brand-gold);
+    letter-spacing:.2px;
+    line-height:1.15;
+  }
+  /* ---- middle of header: dashboard title, then period, then outlet — one per line, centred ---- */
+  .hdr-mid{
+    min-width:0;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    text-align:center;
+    gap:0;
+  }
+  h1.dash-title{
+    margin:0;
+    font-size:20px;
+    line-height:1.1;
+    color:var(--on-dark);
+  }
+  .title-btn{
+    display:inline-flex;align-items:center;gap:6px;
+    padding:5px 12px;
+    border:1px solid var(--brand-line);border-radius:5px;
+    background:transparent;color:var(--on-dark-soft);cursor:pointer;
+    font-size:13px;font-weight:700;white-space:nowrap;
+  }
+  .title-btn svg{width:14px;height:14px;flex:none;}
+  .title-btn:hover{color:var(--on-dark);border-color:var(--brand-gold);}
+  .hdr-period{
+    font-weight:700;
+    font-size:14px;
+    line-height:1.2;
+    color:var(--brand-gold);
+  }
+  .hdr-period.editable{
+    cursor:pointer;
+    text-decoration:underline dotted var(--brand-taupe);
+    text-underline-offset:4px;
+  }
+  .hdr-period.editable:hover{text-decoration-color:var(--brand-gold);}
+  .hdr-outlet{font-size:13px;line-height:1.2;color:var(--on-dark-soft);}
+
+  /* Input/History sit inline next to the "Sales Dashboard" title, using the
+     empty horizontal space beside it, instead of stacking below and adding
+     extra header height. */
+  .title-row{display:flex;align-items:center;gap:14px;}
+  .data-btn-row{display:flex;gap:8px;}
+  .prepared-wrap{justify-self:end;display:flex;align-items:center;gap:10px;}
+  .prepared{
+    display:flex;
+    flex-direction:column;
+    align-items:flex-end;
+    gap:2px;
+    text-align:right;
+    font-size:12px;
+    line-height:1.3;
+  }
+  .prepared > div{display:flex;gap:5px;}
+  .prepared dt{color:var(--on-dark-soft);}
+  .prepared dt::after{content:":";}
+  .prepared dd{margin:0;color:var(--on-dark);font-weight:600;white-space:nowrap;}
+  .refresh-btn{
+    flex:none;display:flex;align-items:center;justify-content:center;
+    width:28px;height:28px;padding:0;
+    background:transparent;color:var(--on-dark-soft);
+    border:1px solid var(--brand-line);border-radius:50%;
+    cursor:pointer;
+  }
+  .refresh-btn:hover{border-color:var(--on-dark-soft);color:var(--on-dark);}
+  .refresh-btn svg{width:15px;height:15px;}
+  .refresh-btn.spinning svg{animation:refresh-spin .8s linear infinite;}
+  @keyframes refresh-spin{to{transform:rotate(360deg);}}
+
+  .hdr-bottom{
+    display:flex;
+    flex-direction:column;
+  }
+  /* tabs + filters share this row: nav left, period/outlet/actions right. Wraps
+     onto additional lines rather than relying on a scrollbar - a horizontal
+     scroll here turned out to hide controls (Excel/Share) that people didn't
+     realize they had to scroll to find. */
+  .hdr-toolbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:6px 16px;
+    padding:4px 0;
+  }
+  .page-tabs{display:flex;align-items:center;flex:none;gap:3px 14px;}
+  .tab-btn{
+    background:none;border:none;
+    color:var(--on-dark-soft);
+    font-size:14px;
+    line-height:1.25;
+    padding:5px 0 4px;
+    cursor:pointer;
+    white-space:nowrap;
+    border-bottom:3px solid transparent;
+  }
+  .tab-btn:hover{color:var(--on-dark);}
+  .tab-btn.active{color:var(--on-dark);border-bottom-color:var(--brand-gold);}
+
+  .controls{display:flex;align-items:center;flex:none;flex-wrap:nowrap;gap:6px 12px;}
+  .ctl{display:flex;align-items:center;gap:6px;flex:none;}
+  .ctl-label{font-size:13px;line-height:1.2;color:var(--on-dark-soft);white-space:nowrap;}
+  .controls .ctl-label{font-weight:700;font-style:italic;color:var(--on-dark);}
+  .site-header select,.site-header input[type=date],.period-pop input[type=date]{
+    font-size:13px;
+    line-height:1.2;
+    padding:4px 8px;
+    border-radius:4px;
+    border:1px solid var(--brand-line);
+    background:var(--brand-dark);
+    color:var(--on-dark);
+    color-scheme:dark;
+  }
+  .site-header select:focus,.site-header input:focus,.period-pop input:focus{border-color:var(--brand-gold);outline:none;}
+  .pills{display:flex;gap:5px;flex:none;}
+  .pill{
+    padding:3px 10px;
+    border-radius:999px;
+    font-size:13px;
+    line-height:1.2;
+    white-space:nowrap;
+    border:1px solid var(--brand-line);
+    background:transparent;
+    color:var(--on-dark);
+    cursor:pointer;
+  }
+  .pill:hover{border-color:var(--on-dark-soft);}
+  .pill.active{background:var(--brand-gold);border-color:var(--brand-gold);color:var(--brand-dark);font-weight:700;}
+  .period-pop{
+    position:fixed;z-index:200;
+    display:flex;flex-direction:column;gap:8px;
+    background:var(--brand-dark-2);
+    border:1px solid var(--brand-line);
+    border-radius:8px;
+    box-shadow:0 12px 32px rgba(0,0,0,.5);
+    padding:12px;
+    width:266px;
+  }
+  .period-pop .ctl-label{font-size:13px;color:var(--on-dark-soft);}
+  .cal-head{display:flex;align-items:center;justify-content:space-between;}
+  .cal-title{font-weight:700;color:var(--on-dark);font-size:13px;}
+  .cal-nav{background:none;border:none;color:var(--on-dark-soft);cursor:pointer;font-size:15px;padding:2px 10px;border-radius:4px;}
+  .cal-nav:hover:not(:disabled){color:var(--on-dark);background:rgba(255,255,255,.08);}
+  .cal-nav:disabled{opacity:.25;cursor:default;}
+  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;}
+  .cal-dow{font-size:10px;color:var(--on-dark-soft);text-align:center;padding:3px 0;}
+  .cal-day{
+    position:relative;aspect-ratio:1;display:flex;align-items:center;justify-content:center;
+    font-size:12px;color:var(--on-dark);border-radius:5px;cursor:pointer;background:transparent;border:none;
+    font-family:inherit;
+  }
+  .cal-day.empty{visibility:hidden;cursor:default;}
+  .cal-day:disabled{color:var(--on-dark-soft);opacity:.3;cursor:default;}
+  .cal-day:hover:not(:disabled):not(.range-start):not(.range-end){background:rgba(228,182,51,.2);}
+  .cal-day.in-range{background:rgba(228,182,51,.16);border-radius:0;}
+  .cal-day.range-start{border-radius:5px 0 0 5px;}
+  .cal-day.range-end{border-radius:0 5px 5px 0;}
+  .cal-day.range-start,.cal-day.range-end{background:var(--brand-gold);color:var(--brand-dark);font-weight:700;}
+  .cal-day.holiday::after{
+    content:"";position:absolute;bottom:3px;left:50%;transform:translateX(-50%);
+    width:4px;height:4px;border-radius:50%;background:var(--brand-orange);
+  }
+  .cal-day.range-start.holiday::after,.cal-day.range-end.holiday::after{background:var(--brand-dark);}
+  .cal-legend{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--on-dark-soft);}
+  .cal-legend .dot{width:5px;height:5px;border-radius:50%;background:var(--brand-orange);display:inline-block;}
+  .view-holidays-btn{
+    background:none;border:none;color:var(--brand-taupe);
+    font-size:11.5px;text-decoration:underline;cursor:pointer;padding:0;
+    font-family:var(--body-font);white-space:nowrap;
+  }
+  .view-holidays-btn:hover{color:var(--ink);}
+  .holiday-pop{max-height:min(360px, 70vh);overflow-y:auto;width:290px;}
+  .holiday-pop-title{font-weight:700;color:var(--on-dark);font-size:13px;margin-bottom:8px;}
+  .holiday-pop-row{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;color:var(--on-dark-soft);padding:5px 0;border-bottom:1px solid var(--brand-line);}
+  .holiday-pop-row:last-child{border-bottom:none;}
+  .holiday-pop-date{color:var(--on-dark);font-weight:700;flex:none;white-space:nowrap;}
+  .holiday-pop-name{text-align:right;}
+  .holiday-pop-empty{font-size:12.5px;color:var(--on-dark-soft);text-align:center;padding:10px 0;}
+  .cal-range-label{font-size:12px;color:var(--on-dark);text-align:center;min-height:16px;}
+  .apply-btn{
+    background:var(--brand-gold);color:var(--brand-dark);border:none;
+    font-weight:700;font-size:13px;padding:7px 14px;border-radius:4px;cursor:pointer;
+  }
+
+  /* Input / History modals */
+  .modal-overlay{
+    position:fixed;inset:0;z-index:300;
+    background:rgba(20,15,10,.55);
+    display:flex;align-items:center;justify-content:center;
+    padding:20px;
+  }
+  .modal-overlay[hidden]{display:none;}
+  .modal-box{
+    background:var(--panel);color:var(--ink);
+    border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.4);
+    width:100%;max-width:520px;max-height:85vh;
+    display:flex;flex-direction:column;overflow:hidden;
+  }
+  .modal-box.wide{max-width:1600px;width:95vw;max-height:92vh;}
+  .modal-box.medium{max-width:760px;}
+  table.data.history-table{width:100%;min-width:0;}
+  table.data.history-table td.wrap{min-width:0;}
+  #historyList.table-scroll{max-height:none;}
+  .modal-head{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:14px 18px;border-bottom:1px solid var(--rule);
+  }
+  .modal-head h2{margin:0;font-size:16px;font-family:var(--head-font);font-weight:700;font-style:italic;color:var(--ink);}
+  .modal-close{background:none;border:none;font-size:16px;line-height:1;color:var(--ink-soft);cursor:pointer;padding:4px;}
+  .modal-close:hover{color:var(--ink);}
+  .modal-body{padding:16px 18px;overflow-y:auto;overscroll-behavior:contain;}
+  .modal-hint{margin:0 0 12px;font-size:13px;color:var(--ink-soft);line-height:1.5;}
+  .modal-note{color:var(--ink-mute);font-weight:400;font-style:italic;}
+  .input-status{margin-top:12px;font-size:13px;color:var(--ink-soft);}
+  .input-status ul{margin:6px 0;padding-left:18px;}
+  .input-preview{margin-top:12px;padding:12px;background:var(--gold-soft);border-radius:6px;font-size:13px;line-height:1.7;}
+  .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:16px;}
+  .modal-actions[hidden]{display:none;}
+  .history-row{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:10px 0;border-bottom:1px solid var(--rule-soft);
+  }
+  .history-row:last-child{border-bottom:none;}
+  .history-label{font-weight:700;font-size:13.5px;}
+  .history-meta{font-size:12px;color:var(--ink-mute);margin-top:2px;}
+
+  .drop-zone{
+    border:2px dashed var(--rule);border-radius:8px;
+    padding:22px 16px;text-align:center;cursor:pointer;
+    background:var(--page);
+  }
+  .drop-zone.drag-over{border-color:var(--brand-gold);background:var(--gold-soft);}
+  .drop-zone-text{font-weight:700;color:var(--ink-soft);margin-bottom:6px;}
+  .drop-zone-or{font-size:12px;color:var(--ink-mute);margin-bottom:10px;}
+  .drop-zone-btns{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;}
+  .assign-wrap{margin-top:14px;}
+  .assign-table-scroll{max-height:260px;overflow-y:auto;border:1px solid var(--rule-soft);border-radius:6px;}
+  .file-row{
+    display:flex;align-items:center;gap:10px;font-size:12.5px;
+    padding:7px 10px;border-bottom:1px solid var(--rule-soft);
+  }
+  .file-row:last-child{border-bottom:none;}
+  .file-row-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .file-row-tag{flex:none;color:var(--ink-soft);font-style:italic;}
+  .assign-remove{background:none;border:none;color:var(--ink-mute);cursor:pointer;font-size:14px;padding:2px 6px;flex:none;}
+  .assign-remove:hover{color:var(--brand-red);}
+
+  .action-btn{
+    display:inline-flex;align-items:center;gap:6px;
+    padding:4px 12px;
+    border-radius:4px;
+    border:1px solid var(--brand-gold);
+    background:var(--brand-gold);
+    color:var(--brand-dark);
+    font-size:13px;line-height:1.2;font-weight:700;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  /* .action-btn's own display:inline-flex above otherwise beats the browser's
+     default [hidden]{display:none} rule (an author rule always wins over a
+     user-agent rule, whatever the specificity) - so a hidden action-btn would
+     stay visible. This restores hiding it. */
+  .action-btn[hidden]{display:none;}
+  .action-btn:hover{background:#F0C453;}
+  .action-btn.ghost{background:transparent;color:var(--on-dark);border-color:var(--brand-line);}
+  .action-btn.ghost:hover{border-color:var(--on-dark-soft);}
+  .action-btn svg{width:14px;height:14px;flex:none;}
+  .action-btn.icon-only{padding:4px 8px;}
+  .action-btn.icon-only svg{width:16px;height:16px;}
+  /* .action-btn.ghost above is tuned for the dark header - on a light panel
+     (modals) its near-white text is almost invisible, so re-tone it here. */
+  .modal-box .action-btn.ghost{color:var(--ink);border-color:var(--rule);}
+  .modal-box .action-btn.ghost:hover{border-color:var(--ink-mute);background:var(--rule-soft);}
+  .action-btn.danger{background:var(--brand-red);border-color:var(--brand-red);color:#fff;}
+  .action-btn.danger:hover{background:#7E2216;}
+  .history-toolbar{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;}
+  .history-toolbar .modal-hint{margin:0;flex:1;}
+  .history-toolbar .action-btn{flex:none;white-space:nowrap;}
+  .clear-all-confirm{
+    margin:12px 0;padding:14px 16px;border-radius:6px;
+    background:var(--red-soft,#F6E4E0);border:1px solid var(--brand-red);
+  }
+  .clear-all-confirm p{margin:0 0 10px;font-size:13px;color:var(--ink);}
+  .clear-all-confirm .modal-actions{margin-top:0;}
+  .delete-month-datasets{display:flex;flex-wrap:wrap;gap:12px 20px;margin:0 0 12px;font-size:13px;color:var(--ink);}
+  .delete-month-datasets label{display:flex;align-items:center;gap:6px;cursor:pointer;}
+  .history-actions{display:flex;gap:6px;flex-wrap:wrap;}
+
+  @media(max-width:1100px){
+    /* company and data-available share the first row; title/period/outlet move to a centred second row */
+    .hdr-top{grid-template-columns:minmax(0,1fr) auto;}
+    .hdr-mid{grid-column:1 / -1;grid-row:2;}
+  }
+  @media(max-width:700px){
+    .hdr-inner{padding:0 16px;}
+    .logo-tile{height:40px;min-width:40px;}
+    .logo-tile img{max-height:40px;}
+    :root{--brand-size:18px;}
+    .prepared{font-size:11px;}
+    h1.dash-title{font-size:18px;}
+    .hdr-period{font-size:14px;}
+    .hdr-outlet{font-size:13px;}
+    /* stack: tabs, then controls */
+    .hdr-toolbar{flex-direction:column;align-items:stretch;gap:8px 0;padding:6px 0 0;}
+    .page-tabs{order:1;min-width:0;}
+    .controls{order:2;}
+    /* collapse secondary info once the user scrolls, so the sticky header stays small */
+    .site-header.condensed .data-btn-row,
+    .site-header.condensed .prepared-wrap,
+    .site-header.condensed .controls{display:none;}
+    .site-header.condensed .hdr-top{padding:8px 0;}
+  }
+  @media(max-width:560px){
+    .hdr-top{grid-template-columns:minmax(0,1fr);}
+    .hdr-mid{grid-row:2;align-items:flex-start;text-align:left;}
+    .title-row{flex-direction:column;align-items:flex-start;gap:6px;}
+    .data-btn-row{justify-content:flex-start;}
+    .prepared-wrap{grid-row:3;justify-self:start;}
+    .prepared{align-items:baseline;flex-direction:row;gap:6px;text-align:left;}
+  }
+
+  /* ============================ PAGE BODY ============================ */
+  main{max-width:1360px;margin:0 auto;padding:22px 32px 92px;}
+  @media(max-width:700px){main{padding:18px 16px 130px;}}
+  .page{display:none;}
+  .page.active{display:block;}
+  .panel,h2.section-title{scroll-margin-top:170px;}
+
+  h2.section-title{font-size:23px;line-height:1.25;margin:0 0 12px;color:var(--ink);}
+  .section{margin-bottom:36px;}
+  .panel{background:var(--panel);border:1px solid var(--rule);border-radius:6px;}
+
+  /* ----- key figures ----- */
+  .figures{
+    display:grid;
+    grid-template-columns:repeat(var(--cols,3),minmax(0,1fr));
+    margin-bottom:34px;
+    overflow:hidden;
+  }
+  .figure{padding:15px 20px 17px;border-left:1px solid var(--rule-soft);display:flex;flex-direction:column;}
+  .f-value{margin-top:auto;}
+  .figure:first-child{border-left:none;}
+  .f-label{font-size:15px;color:var(--ink-soft);margin-bottom:6px;line-height:1.3;}
+  .f-value{font-size:26px;font-weight:700;line-height:1.1;color:var(--ink);white-space:nowrap;}
+  .figure.lead{background:var(--gold-soft);}
+  .figure.lead .f-value{font-size:34px;color:var(--gold-text);}
+  .figure.is-red .f-value{color:var(--brand-red);}
+  .figure.is-gold .f-value{color:var(--gold-text);}
+  .figure.is-orange .f-value{color:var(--orange-text);}
+  .figures.overview{grid-template-columns:1.6fr repeat(3,minmax(0,1fr));}
+  .figures.overview .lead .f-value{font-size:34px;}
+  @media(max-width:1100px){
+    .figures.overview{grid-template-columns:repeat(3,minmax(0,1fr));}
+    .figures.overview .lead{grid-column:1 / -1;}
+    .figures.overview .figure:not(.lead){border-top:1px solid var(--rule-soft);}
+    .figures.overview .figure:nth-child(2){border-left:none;}
+  }
+  @media(max-width:700px){
+    .figures,.figures.overview{grid-template-columns:repeat(2,minmax(0,1fr));}
+    .figures .figure{border-left:none !important;border-top:1px solid var(--rule-soft);}
+    .figures .figure:nth-child(-n+2){border-top:none;}
+    .figures.overview .figure:nth-child(2){border-top:1px solid var(--rule-soft);}
+    .figures .figure:nth-child(even):not(.lead){border-left:1px solid var(--rule-soft) !important;}
+    .figures.overview .figure:nth-child(even){border-left:none !important;}
+    .figures.overview .figure:nth-child(odd):not(.lead){border-left:1px solid var(--rule-soft) !important;}
+    .figures.overview .figure:last-child{grid-column:1 / -1;border-left:none !important;}
+    .f-value{font-size:22px;}
+  }
+
+  /* ----- charts ----- */
+  .chart-box{padding:16px 20px 16px;}
+  .chart-head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px 12px;margin-bottom:8px;}
+  .chart-title{font-size:16.5px;color:var(--ink);}
+  .chart-wrap{position:relative;width:100%;height:230px;}
+  .clear-chip{
+    display:none;align-items:center;gap:6px;
+    font-size:12.5px;font-weight:700;
+    color:var(--brand-red);background:var(--red-soft);
+    border:none;border-radius:999px;padding:4px 12px;cursor:pointer;
+  }
+  .clear-chip.show{display:inline-flex;}
+
+  .page-daytype{display:flex;align-items:center;gap:8px;justify-content:flex-end;margin-bottom:10px;}
+  .page-daytype-label{font-size:13px;font-weight:700;font-style:italic;font-family:var(--head-font);color:var(--ink-soft);}
+  .page-daytype select{
+    font-size:13px;padding:4px 8px;border:1px solid var(--rule);border-radius:4px;
+    background:var(--panel);color:var(--ink);font-family:inherit;
+  }
+  .overview-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;}
+  @media(max-width:860px){.overview-grid{grid-template-columns:1fr;}}
+  .overview-card{padding:15px 18px 14px;cursor:pointer;transition:border-color .15s ease;}
+  .overview-card:hover{border-color:var(--brand-gold);}
+  .overview-card.wide{grid-column:1 / -1;}
+  .oc-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:10px;}
+  .oc-title{font-size:17px;color:var(--ink);}
+  .oc-link{font-size:13px;font-weight:600;color:var(--gold-text);white-space:nowrap;}
+  .overview-card:hover .oc-link{text-decoration:underline;text-underline-offset:3px;}
+  .mini-wrap{position:relative;width:100%;height:170px;}
+  .mini-wrap.tall{height:300px;}
+  @media(max-width:700px){.overview-card.wide .mini-wrap{height:240px;} .mini-wrap.tall{height:380px;}}
+
+  /* ----- heat maps ----- */
+  .heatmap-scroll{overflow-x:auto;}
+  table.heatmap{border-collapse:separate;border-spacing:3px;width:100%;min-width:820px;table-layout:fixed;}
+  table.heatmap col.day-col{width:56px;}
+  table.heatmap th,table.heatmap td{text-align:center;font-size:12px;padding:0;}
+  table.heatmap thead th{color:var(--ink-soft);font-weight:600;padding-bottom:4px;}
+  table.heatmap .day-label{text-align:left;padding-right:8px;color:var(--ink);font-weight:700;white-space:nowrap;}
+  .day-holiday-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--brand-red);margin-right:4px;vertical-align:middle;}
+  table.heatmap td.cell{height:34px;border-radius:3px;color:var(--ink);font-size:12px;font-weight:500;}
+  table.heatmap td.cell.dark{color:#fff;}
+  table.heatmap td.cell.empty{color:var(--ink-mute);background:var(--rule-soft);}
+  .heatmap-legend{min-width:814px;margin:0 3px 14px;}
+  .heatmap-holiday-note{display:flex;justify-content:flex-end;align-items:center;gap:6px;font-size:12px;color:var(--ink-soft);margin-bottom:6px;}
+  .legend-bar{height:12px;border-radius:6px;width:100%;}
+  .legend-bar.guests{background:linear-gradient(to right, rgba(210,94,29,.14), rgba(210,94,29,.95));}
+  .legend-bar.sales{background:linear-gradient(to right, rgba(228,182,51,.14), rgba(228,182,51,.95));}
+  .legend-scale{display:flex;justify-content:space-between;margin-top:5px;font-size:12.5px;color:var(--ink-soft);}
+  .legend-scale strong{color:var(--ink);font-weight:700;}
+
+  /* ----- data tables with Excel-style filters ----- */
+  /* overscroll-behavior:contain stops scrolling inside this box from
+     "leaking" into scrolling the whole page once you hit its top/bottom
+     edge - without it, dragging/scrolling a table feels like the entire
+     dashboard is moving, especially on trackpads and touch devices. */
+  .table-scroll{max-height:560px;overflow:auto;border-radius:6px 6px 0 0;overscroll-behavior:contain;}
+  table.data{width:100%;border-collapse:separate;border-spacing:0;min-width:900px;}
+  table.data thead th{
+    position:sticky;top:0;z-index:2;
+    background:#F3ECDF;
+    text-align:center;
+    padding:0;
+    border-bottom:1px solid var(--rule);
+    white-space:nowrap;
+    vertical-align:bottom;
+  }
+  /* column headings are centred over their columns */
+  .th-in{display:flex;align-items:center;justify-content:center;gap:6px;padding:11px 12px 10px;}
+  .th-label{
+    font-family:var(--head-font);font-style:italic;font-weight:700;
+    font-size:14px;color:var(--ink);
+    cursor:pointer;user-select:none;
+    background:none;border:none;padding:0;text-align:inherit;
+  }
+  .th-label .arrow{font-family:var(--body-font);font-style:normal;font-size:11px;color:var(--ink-soft);margin-left:3px;}
+  .xf-btn{
+    flex:none;
+    width:22px;height:22px;
+    display:inline-flex;align-items:center;justify-content:center;
+    border:1px solid var(--rule);
+    border-radius:3px;
+    background:#fff;
+    color:var(--ink-soft);
+    cursor:pointer;
+    padding:0;
+  }
+  .xf-btn:hover{border-color:var(--ink-mute);color:var(--ink);}
+  .xf-btn svg{width:12px;height:12px;}
+  .xf-btn.on{background:var(--taupe-text);border-color:var(--taupe-text);color:#fff;}
+
+  table.data tbody td{
+    padding:10px 14px;
+    border-bottom:1px solid var(--rule-soft);
+    font-size:13.5px;
+    white-space:nowrap;
+    background:#fff;
+  }
+  table.data tbody tr:hover td{background:#FCF8F1;}
+  table.data td.r{text-align:right;}
+  table.data td.wrap{white-space:normal;min-width:180px;}
+  table.data td.soft{color:var(--ink-soft);}
+  table.data thead tr.total-row td{
+    position:sticky;z-index:1;
+    background:#FBF3DF;
+    border-top:2px solid var(--brand-gold);
+    border-bottom:2px solid var(--brand-gold);
+    padding:9px 14px;
+    font-weight:700;
+    font-size:13.5px;
+    white-space:nowrap;
+  }
+  table.data thead tr.total-row td.r{text-align:right;}
+  .cat-tag{display:inline-block;font-size:12.5px;color:var(--ink-soft);background:var(--rule-soft);border-radius:3px;padding:1px 7px;}
+  .empty-cell{text-align:center !important;color:var(--ink-mute);padding:34px !important;white-space:normal !important;}
+  .table-foot{
+    display:flex;justify-content:space-between;align-items:center;gap:12px;
+    padding:10px 14px;font-size:13px;color:var(--ink-soft);
+    border-top:1px solid var(--rule-soft);
+  }
+  .tf-actions{display:flex;align-items:center;gap:18px;}
+  .link-btn{color:var(--gold-text);background:none;border:none;font-size:13px;font-weight:700;padding:0;cursor:pointer;}
+  .link-btn:hover{text-decoration:underline;text-underline-offset:3px;}
+  .link-btn[hidden]{display:none;}
+
+  /* filter drop-down */
+  .xf-pop{
+    position:fixed;z-index:200;
+    width:270px;
+    background:#fff;
+    border:1px solid var(--rule);
+    border-radius:6px;
+    box-shadow:0 10px 30px rgba(43,33,27,.22);
+    padding:6px;
+    font-size:13.5px;
+  }
+  .xf-item{
+    display:flex;align-items:center;gap:8px;width:100%;
+    background:none;border:none;text-align:left;
+    padding:7px 8px;border-radius:4px;cursor:pointer;color:var(--ink);font-size:13.5px;
+  }
+  .xf-item:hover:not(:disabled){background:var(--rule-soft);}
+  .xf-item:disabled{color:var(--ink-mute);cursor:default;}
+  .xf-item.cur{font-weight:700;}
+  .xf-sep{height:1px;background:var(--rule-soft);margin:5px 2px;}
+  .xf-search{
+    width:100%;padding:7px 9px;margin:2px 0 6px;
+    border:1px solid var(--rule);border-radius:4px;font-size:13.5px;color:var(--ink);
+  }
+  .xf-search:focus{border-color:var(--brand-gold);outline:none;}
+  .xf-list{max-height:230px;overflow:auto;border:1px solid var(--rule-soft);border-radius:4px;padding:3px 0;}
+  .xf-row{display:flex;align-items:center;gap:8px;padding:4px 9px;cursor:pointer;white-space:nowrap;}
+  .xf-row:hover{background:#FCF8F1;}
+  .xf-row span{overflow:hidden;text-overflow:ellipsis;}
+  .xf-row input{accent-color:var(--taupe-text);margin:0;flex:none;}
+  .xf-all{font-weight:600;border-bottom:1px solid var(--rule-soft);margin-bottom:2px;padding-bottom:6px;}
+  .xf-none{padding:10px;color:var(--ink-mute);}
+  .xf-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:8px;}
+  .xf-actions button{padding:6px 16px;border-radius:4px;font-size:13px;font-weight:700;cursor:pointer;}
+  .xf-ok{background:var(--taupe-text);border:1px solid var(--taupe-text);color:#fff;}
+  .xf-ok:disabled{opacity:.45;cursor:default;}
+  .xf-cancel{background:#fff;border:1px solid var(--rule);color:var(--ink);}
+
+  /* ----- footer credit: sits in normal page flow, below all content, so it never overlaps a chart ----- */
+  .site-footer{
+    position:fixed;left:0;right:0;bottom:0;z-index:70;
+    background:var(--brand-dark);color:var(--on-dark);
+    padding:14px 32px;
+    display:flex;justify-content:flex-start;
+    box-shadow:0 -2px 10px rgba(43,33,27,.18);
+  }
+  .footer-credit{display:flex;align-items:baseline;gap:6px;font-size:12.5px;text-decoration:none;}
+  .footer-credit .pf-label{color:var(--on-dark-soft);}
+  .footer-credit .pf-firm{
+    font-weight:700;color:var(--on-dark);
+    text-decoration:underline;
+    text-decoration-color:var(--brand-taupe);
+    text-underline-offset:2px;
+  }
+  .footer-credit:hover .pf-firm{color:var(--brand-gold);text-decoration-color:var(--brand-gold);}
+  @media(max-width:700px){.site-footer{padding:12px 16px;justify-content:center;}}
+
+  .footer-logout{
+    position:absolute;right:32px;top:50%;transform:translateY(-50%);
+    background:transparent;color:var(--on-dark-soft);
+    border:1px solid var(--brand-line);border-radius:4px;
+    font-size:12.5px;font-weight:700;padding:5px 12px;
+    cursor:pointer;
+  }
+  .footer-logout:hover{border-color:var(--on-dark-soft);color:var(--on-dark);}
+
+  .footer-note{
+    position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    color:var(--on-dark-soft);font-size:12.5px;white-space:nowrap;
+    display:flex;align-items:center;gap:6px;
+  }
+  .footer-note-icon{width:14px;height:14px;flex:none;}
+  @media(max-width:700px){.footer-note{display:none;}}
+  @media(max-width:700px){.footer-logout{position:static;transform:none;margin-bottom:8px;}
+    .site-footer{flex-direction:column;}}
+
+  .gate-error{color:#E88A78;font-size:13px;}
+  #appRoot{display:none;}
+
+  @media (prefers-reduced-motion: reduce){
+    html{scroll-behavior:auto;}
+    *{transition:none !important;}
+  }
+
+  /* ============================ PRINT / PDF DOWNLOAD ============================
+     "Download Report" just calls window.print() — no library, no server, no cost.
+     Picking "Save as PDF" as the print destination is what produces the file.
+     Only the currently active tab/period/outlet is exported, matching what's on screen. */
+  @media print{
+    body{background:#fff;}
+    header.site-header{position:static;box-shadow:none;}
+    header.site-header::after{display:none;}
+    .controls, .page-tabs, .site-footer{display:none !important;}
+    .xf-btn, .clear-chip, .oc-link, .tf-export{display:none !important;}
+    main{padding:10px 18px 20px;max-width:100%;}
+    .panel{border:1px solid #ccc;box-shadow:none;}
+    .table-scroll{max-height:none;overflow:visible;}
+    table.data thead th, table.data thead tr.total-row td{position:static !important;}
+    table.data{min-width:0;}
+    .heatmap-scroll{overflow:visible;}
+    table.heatmap{min-width:0;}
+    .overview-card{cursor:default;}
+    .overview-card, .panel, h2.section-title{break-inside:avoid;}
+    canvas{max-width:100% !important;}
+  }
+</style>
+</head>
+<body>
+
+<div id="bootStatus" style="padding:40px;color:#6B5E54;text-align:center;">Loading dashboard…</div>
+
+<div id="appRoot">
+
+<!-- ============================ HEADER ============================ -->
+<header class="site-header" id="siteHeader">
+  <div class="hdr-inner">
+    <div class="hdr-top">
+      <div class="brand">
+        <div class="logo-tile" id="logoTile">
+          <img src="/static/logo.png" alt="Kappa Chakka Kandhari Logo" id="logoImg">
+          <span class="logo-fallback" aria-hidden="true">KCK</span>
+        </div>
+        <div class="company-name hd">Kappa Chakka Kandhari</div>
+      </div>
+
+      <div class="hdr-mid" aria-live="polite">
+        <div class="title-row">
+        <h1 class="dash-title hd">Sales Dashboard</h1>
+        <div class="data-btn-row">
+          <button class="title-btn hd" id="openInputBtn" type="button" title="Upload a new Posist export folder">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 11.5V3m0 0L4.5 6.5M8 3l3.5 3.5"/><path d="M2.5 12.5v1a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-1"/></svg>
+            Input
+          </button>
+          <button class="title-btn hd" id="openHistoryBtn" type="button" title="See what data has been uploaded, and when">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 4.8V8l2.4 1.4"/></svg>
+            History
+          </button>
+        </div>
+        </div>
+        <div class="hdr-period" id="hdrPeriod">—</div>
+        <div class="hdr-outlet" id="hdrOutlet">—</div>
+      </div>
+
+      <div class="prepared-wrap">
+        <button class="refresh-btn" id="refreshPageBtn" type="button" title="Reload the dashboard to pick up any data uploaded since this page opened">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M13.5 2.5v3.3h-3.3"/></svg>
+        </button>
+        <dl class="prepared">
+          <div><dt>Data Available</dt><dd id="dataAvailable">—</dd></div>
+          <div><dt>Last Refreshed</dt><dd id="lastRefreshed">—</dd></div>
+        </dl>
+      </div>
+    </div>
+
+    <div class="hdr-bottom">
+      <div class="hdr-toolbar">
+        <nav class="page-tabs" id="pageTabs" role="tablist" aria-label="Dashboard Sections">
+          <button class="tab-btn hd active" role="tab" aria-selected="true" data-page="overview">Overview</button>
+          <button class="tab-btn hd" role="tab" aria-selected="false" data-page="hourlysales">Sales By Hour</button>
+          <button class="tab-btn hd" role="tab" aria-selected="false" data-page="hourly">Guests By Hour</button>
+          <button class="tab-btn hd" role="tab" aria-selected="false" data-page="items">Dish-Wise Sales</button>
+          <button class="tab-btn hd" role="tab" aria-selected="false" data-page="discounts">Discounts</button>
+          <button class="tab-btn hd" role="tab" aria-selected="false" data-page="cancellations">Cancelled KOTs</button>
+        </nav>
+
+        <div class="controls">
+        <div class="ctl">
+          <label class="ctl-label" for="datePreset">Period</label>
+          <select id="datePreset">
+            <option value="today">Today</option>
+            <option value="yesterday">Yesterday</option>
+            <option value="7d">Last 7 Days</option>
+            <option value="month" selected>This Month</option>
+            <option value="lastmonth">Last Month</option>
+            <option value="custom">Choose Dates</option>
+          </select>
+        </div>
+        <div class="ctl">
+          <span class="ctl-label" id="outletLabel">Outlet</span>
+          <div class="pills" id="branchPills" role="group" aria-labelledby="outletLabel">
+            <button class="pill active" data-branch="All" aria-pressed="true">Both</button>
+            <button class="pill" data-branch="Chennai" aria-pressed="false">Chennai</button>
+            <button class="pill" data-branch="Bengaluru" aria-pressed="false">Bengaluru</button>
+          </div>
+        </div>
+        <div class="ctl">
+          <button class="action-btn icon-only hd" id="downloadReportBtn" type="button" aria-label="Download Report" title="Download">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 2v8m0 0 3-3m-3 3-3-3M3 12.5h10"/></svg>
+          </button>
+          <button class="action-btn ghost icon-only hd" id="downloadExcelBtn" type="button" aria-label="Excel" title="Excel">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="1"/><path d="M2 6.3h12M2 9.7h12M6.3 2v12M9.7 2v12"/></svg>
+          </button>
+          <button class="action-btn ghost icon-only hd" id="shareReportBtn" type="button" aria-label="Share" title="Share">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2 4.5h12v7H2z"/><path d="m2 4.5 6 5 6-5"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="modal-overlay" id="inputModalOverlay" hidden>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="inputModalTitle">
+    <div class="modal-head">
+      <h2 id="inputModalTitle">Upload New Data</h2>
+      <button class="modal-close" id="inputModalClose" type="button" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="drop-zone" id="dropZone" tabindex="0" role="button" aria-label="Drop the Posist Report folder or its zip file here, or click to choose it">
+        <div class="drop-zone-text">Drop the Posist Report folder (or its .zip) here</div>
+        <div class="drop-zone-or">or</div>
+        <div class="drop-zone-btns">
+          <button class="action-btn ghost" id="chooseFolderBtn" type="button">Choose Folder…</button>
+          <button class="action-btn ghost" id="chooseZipBtn" type="button">Choose Zip File…</button>
+        </div>
+      </div>
+      <div class="input-status" style="margin-top:10px;">
+        Large export taking too long or failing to upload? Ask your administrator
+        for the local prepare tool - it does the slow part on your own computer
+        and produces a small .json file that uploads instantly.
+        <button class="action-btn ghost" id="chooseJsonBtn" type="button" style="margin-left:8px;">Choose JSON File…</button>
+      </div>
+      <input type="file" id="folderInput" webkitdirectory directory multiple hidden>
+      <input type="file" id="zipInput" accept=".zip,application/zip,application/x-zip-compressed" multiple hidden>
+      <input type="file" id="jsonInput" accept=".json,application/json" hidden>
+      <div class="input-status" id="inputStatus"></div>
+      <div class="input-preview" id="inputPreview" hidden></div>
+      <div class="modal-actions" id="inputActions" hidden>
+        <button class="action-btn ghost" id="clearFilesBtn" type="button">Clear</button>
+        <button class="action-btn" id="uploadBtn" type="button" disabled>Upload</button>
+        <button class="action-btn" id="viewDashboardBtn" type="button" hidden>View in Dashboard</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="historyModalOverlay" hidden>
+  <div class="modal-box wide" role="dialog" aria-modal="true" aria-labelledby="historyModalTitle">
+    <div class="modal-head">
+      <h2 id="historyModalTitle">Upload History</h2>
+      <button class="modal-close" id="historyModalClose" type="button" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="history-toolbar">
+        <p class="modal-hint">Every time data has been uploaded, newest first — which files were sent, which months they replaced, and how many rows landed in each dataset.</p>
+        <button class="action-btn danger" id="clearAllDataBtn" type="button">Clear All Data</button>
+      </div>
+      <div id="clearAllConfirm" class="clear-all-confirm" hidden>
+        <p><b>This permanently deletes every uploaded bill, dish sale, discount, and this history log — for everyone.</b> This cannot be undone.</p>
+        <label class="gate-label" for="clearAllPassword" style="color:#6B5E54;">Re-enter your password to confirm</label>
+        <input type="password" id="clearAllPassword" autocomplete="current-password" style="display:block;margin:6px 0 10px;padding:6px 8px;border:1px solid #E8DECC;border-radius:4px;">
+        <div class="modal-actions">
+          <button class="action-btn ghost" id="clearAllCancelBtn" type="button">Cancel</button>
+          <button class="action-btn danger" id="clearAllConfirmBtn" type="button">Yes, delete everything</button>
+        </div>
+      </div>
+      <div id="deleteMonthConfirm" class="clear-all-confirm" hidden>
+        <p id="deleteMonthText"></p>
+        <div class="delete-month-datasets">
+          <label><input type="checkbox" class="dm-ds" value="bills"> Bills</label>
+          <label><input type="checkbox" class="dm-ds" value="sales"> Dish Sales</label>
+          <label><input type="checkbox" class="dm-ds" value="discounts"> Discounts</label>
+          <label><input type="checkbox" class="dm-ds" value="cancellations"> Cancelled KOTs</label>
+        </div>
+        <div class="modal-actions">
+          <button class="action-btn ghost" id="deleteMonthCancelBtn" type="button">Cancel</button>
+          <button class="action-btn danger" id="deleteMonthConfirmBtn" type="button">Delete Selected</button>
+        </div>
+      </div>
+      <div id="historyList" class="table-scroll"></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="itemPeriodModalOverlay" hidden>
+  <div class="modal-box medium" role="dialog" aria-modal="true" aria-labelledby="itemPeriodModalTitle">
+    <div class="modal-head">
+      <h2 id="itemPeriodModalTitle">Period-Wise Breakdown</h2>
+      <button class="modal-close" id="itemPeriodModalClose" type="button" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="modal-hint">Consecutive days are grouped into one period for as long as this dish's rate stayed the same; a new period starts whenever the rate changes.</p>
+      <div class="table-scroll">
+        <table class="data">
+          <thead><tr><th>Period</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Value</th></tr></thead>
+          <tbody id="itemPeriodBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<main>
+
+<!-- ============================ OVERVIEW ============================ -->
+<section id="page-overview" class="page active" role="tabpanel">
+
+  <div class="page-daytype">
+    <label class="page-daytype-label" for="dayType-overview">Day Type</label>
+    <select class="day-type-select" id="dayType-overview">
+      <option value="all">All Days</option>
+      <option value="weekday">Weekdays Only</option>
+      <option value="weekend">Weekends Only</option>
+      <option value="holiday">Public Holidays Only</option>
+    </select>
+  </div>
+
+  <div class="panel figures overview">
+    <div class="figure lead"><div class="f-label hd">Sales</div><div class="f-value" id="ovSales">—</div></div>
+    <div class="figure is-gold"><div class="f-label hd">Discounts Offered</div><div class="f-value" id="ovDiscount">—</div></div>
+    <div class="figure is-red"><div class="f-label hd">Items/KOT's Cancelled</div><div class="f-value" id="ovCancelQty">—</div></div>
+    <div class="figure is-red"><div class="f-label hd">Value Of Cancelled Items/KOT's</div><div class="f-value" id="ovCancelValue">—</div></div>
+  </div>
+
+  <div class="section">
+    <h2 class="section-title hd">Sales By Service Type</h2>
+    <div class="panel chart-box">
+      <div class="chart-wrap" style="height:200px"><canvas id="modeOfSalesChart" role="img" aria-label="Sales By Service Type"></canvas></div>
+    </div>
+  </div>
+
+  <h2 class="section-title hd">Quick View</h2>
+  <div class="overview-grid">
+    <div class="panel overview-card" data-goto="hourlysales" tabindex="0" role="link">
+      <div class="oc-head"><span class="oc-title hd">Sales By Hour</span><span class="oc-link">View Details</span></div>
+      <div class="mini-wrap"><canvas id="ovHourlySalesChart"></canvas></div>
+    </div>
+    <div class="panel overview-card" data-goto="hourly" tabindex="0" role="link">
+      <div class="oc-head"><span class="oc-title hd">Guests By Hour</span><span class="oc-link">View Details</span></div>
+      <div class="mini-wrap"><canvas id="ovHourlyCoversChart"></canvas></div>
+    </div>
+    <div class="panel overview-card" data-goto="items" tabindex="0" role="link">
+      <div class="oc-head"><span class="oc-title hd">Top 10 Selling Dishes</span><span class="oc-link">View Details</span></div>
+      <div class="mini-wrap tall"><canvas id="ovTopItemsChart"></canvas></div>
+    </div>
+    <div class="panel overview-card" data-goto="discounts" tabindex="0" role="link">
+      <div class="oc-head"><span class="oc-title hd">Discounts Offered By Reason</span><span class="oc-link">View Details</span></div>
+      <div class="mini-wrap tall"><canvas id="ovDiscountsChart"></canvas></div>
+    </div>
+    <div class="panel overview-card wide" data-goto="cancellations" tabindex="0" role="link">
+      <div class="oc-head"><span class="oc-title hd">Items/KOT's Cancelled By Reason</span><span class="oc-link">View Details</span></div>
+      <div class="mini-wrap"><canvas id="ovKotsChart"></canvas></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ SALES BY HOUR ============================ -->
+<section id="page-hourlysales" class="page" role="tabpanel">
+  <div class="page-daytype">
+    <label class="page-daytype-label" for="dayType-hourlysales">Day Type</label>
+    <select class="day-type-select" id="dayType-hourlysales">
+      <option value="all">All Days</option>
+      <option value="weekday">Weekdays Only</option>
+      <option value="weekend">Weekends Only</option>
+      <option value="holiday">Public Holidays Only</option>
+    </select>
+  </div>
+  <div class="panel figures" style="--cols:3">
+    <div class="figure is-gold"><div class="f-label hd">Dine In Sales</div><div class="f-value" id="statSalesTotal">—</div></div>
+    <div class="figure"><div class="f-label hd">Number Of Bills</div><div class="f-value" id="statSalesBills">—</div></div>
+    <div class="figure"><div class="f-label hd">Average Sale per Bill</div><div class="f-value" id="statSalesAvg">—</div></div>
+  </div>
+
+  <div class="section">
+    <h2 class="section-title hd">Busiest Hours For Dine In Sales</h2>
+    <div class="panel chart-box">
+      <div class="chart-head"><span class="chart-title hd">Dine In Sales By Day And Hour (Rs. In Thousands)</span></div>
+      <div class="heatmap-scroll" id="salesHeatmapWrap"></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2 class="section-title hd">Dine In Sales In Each Hour</h2>
+    <div class="panel chart-box">
+      <div class="chart-wrap" style="height:240px"><canvas id="salesByHourChart"></canvas></div>
+    </div>
+  </div>
+
+  <h2 class="section-title hd">Bill-Wise Dine In Sales</h2>
+  <div class="panel" id="tblHourlySales"></div>
+</section>
+
+<!-- ============================ GUESTS BY HOUR ============================ -->
+<section id="page-hourly" class="page" role="tabpanel">
+  <div class="page-daytype">
+    <label class="page-daytype-label" for="dayType-hourly">Day Type</label>
+    <select class="day-type-select" id="dayType-hourly">
+      <option value="all">All Days</option>
+      <option value="weekday">Weekdays Only</option>
+      <option value="weekend">Weekends Only</option>
+      <option value="holiday">Public Holidays Only</option>
+    </select>
+  </div>
+  <div class="panel figures" style="--cols:3">
+    <div class="figure is-gold"><div class="f-label hd">Dine In Sales</div><div class="f-value" id="statHourlySales">—</div></div>
+    <div class="figure is-orange"><div class="f-label hd">Guests Served (Covers)</div><div class="f-value" id="statHourlyCovers">—</div></div>
+    <div class="figure is-gold"><div class="f-label hd">Average Spend Per Guest</div><div class="f-value" id="statHourlyAvg">—</div></div>
+  </div>
+
+  <div class="section">
+    <h2 class="section-title hd">Busiest Hours For Guests</h2>
+    <div class="panel chart-box">
+      <div class="chart-head"><span class="chart-title hd">Guests By Day And Hour</span></div>
+      <div class="heatmap-scroll" id="heatmapWrap"></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2 class="section-title hd">Average Spend Per Guest By Hour</h2>
+    <div class="panel chart-box">
+      <div class="chart-wrap" style="height:230px"><canvas id="avgPerCoverChart"></canvas></div>
+    </div>
+  </div>
+
+  <h2 class="section-title hd">Bill-Wise Guest Count</h2>
+  <div class="panel" id="tblHourly"></div>
+</section>
+
+<!-- ============================ DISH-WISE SALES ============================ -->
+<section id="page-items" class="page" role="tabpanel">
+  <div class="page-daytype">
+    <label class="page-daytype-label" for="dayType-items">Day Type</label>
+    <select class="day-type-select" id="dayType-items">
+      <option value="all">All Days</option>
+      <option value="weekday">Weekdays Only</option>
+      <option value="weekend">Weekends Only</option>
+      <option value="holiday">Public Holidays Only</option>
+    </select>
+  </div>
+  <div class="panel figures" style="--cols:3">
+    <div class="figure is-gold"><div class="f-label hd">Sales From Dishes</div><div class="f-value" id="statItemsValue">—</div></div>
+    <div class="figure"><div class="f-label hd">Portions Sold</div><div class="f-value" id="statItemsQty">—</div></div>
+    <div class="figure"><div class="f-label hd">Best-Selling Dish</div><div class="f-value" id="statItemsTop" style="font-size:19px;white-space:normal">—</div></div>
+  </div>
+
+  <h2 class="section-title hd">Dish-Wise Sales</h2>
+  <div class="panel" id="tblItems"></div>
+</section>
+
+<!-- ============================ DISCOUNTS ============================ -->
+<section id="page-discounts" class="page" role="tabpanel">
+  <div class="page-daytype">
+    <label class="page-daytype-label" for="dayType-discounts">Day Type</label>
+    <select class="day-type-select" id="dayType-discounts">
+      <option value="all">All Days</option>
+      <option value="weekday">Weekdays Only</option>
+      <option value="weekend">Weekends Only</option>
+      <option value="holiday">Public Holidays Only</option>
+    </select>
+  </div>
+  <div class="panel figures" style="--cols:3">
+    <div class="figure"><div class="f-label hd">Fully Complimentary Bills</div><div class="f-value" id="statDiscFull">—</div></div>
+    <div class="figure"><div class="f-label hd">Partly Discounted Bills</div><div class="f-value" id="statDiscPartial">—</div></div>
+    <div class="figure is-gold"><div class="f-label hd">Total Discount Offered</div><div class="f-value" id="statDiscValue">—</div></div>
+  </div>
+
+  <div class="section">
+    <h2 class="section-title hd">Reasons For Discount</h2>
+    <div class="panel chart-box">
+      <div class="chart-wrap" style="height:270px"><canvas id="discountReasonChart"></canvas></div>
+    </div>
+  </div>
+
+  <h2 class="section-title hd">List Of Bills With A Discount</h2>
+  <div class="panel" id="tblDiscounts"></div>
+</section>
+
+<!-- ============================ CANCELLED KOTS ============================ -->
+<section id="page-cancellations" class="page" role="tabpanel">
+  <div class="page-daytype">
+    <label class="page-daytype-label" for="dayType-cancellations">Day Type</label>
+    <select class="day-type-select" id="dayType-cancellations">
+      <option value="all">All Days</option>
+      <option value="weekday">Weekdays Only</option>
+      <option value="weekend">Weekends Only</option>
+      <option value="holiday">Public Holidays Only</option>
+    </select>
+  </div>
+  <div class="panel figures" style="--cols:3">
+    <div class="figure is-red"><div class="f-label hd">Items Cancelled</div><div class="f-value" id="statCount">—</div></div>
+    <div class="figure is-red"><div class="f-label hd">Value Of Cancelled Items</div><div class="f-value" id="statValue">—</div></div>
+    <div class="figure"><div class="f-label hd">Cancelled Value As % Of Dine In Sales</div><div class="f-value" id="statCancelShare">—</div></div>
+  </div>
+
+  <div class="section">
+    <h2 class="section-title hd">Reasons For Cancellation Of Items</h2>
+    <div class="panel chart-box">
+      <div class="chart-head">
+        <span class="chart-title hd">Cancelled Items By Reason</span>
+        <button class="clear-chip" id="clearReason">Show All Reasons ✕</button>
+      </div>
+      <div class="chart-wrap"><canvas id="reasonChart"></canvas></div>
+    </div>
+  </div>
+
+  <h2 class="section-title hd">List Of Cancelled Items</h2>
+  <div class="panel" id="tblCancel"></div>
+</section>
+
+</main>
+
+<footer class="site-footer">
+  <button class="footer-logout hd" id="logoutBtn" type="button">Log Out</button>
+  <span class="footer-note hd"><svg class="footer-note-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="11" x2="12" y2="16"></line><circle cx="12" cy="7.5" r="0.9" fill="currentColor" stroke="none"></circle></svg>Dashboard data is based on reports curated from Posist.</span>
+  <a class="footer-credit hd" href="https://gsvassociates.com/" target="_blank" rel="noopener">
+    <span class="pf-label">Powered By</span>
+    <span class="pf-firm">GSV Associates LLP</span>
+  </a>
+</footer>
+
+</div><!-- /#appRoot -->
+
+<script>
+/* =====================================================================
+   SETTINGS
+===================================================================== */
+// Sourced from the Posist POS exports for July 2026 (Payment Report, Bill Item
+// Detailed Report, Discount and Voucher Report, KOT Tracking Report) covering
+// both outlets: KCK - Nungambakkam (Chennai) and Kappa Chakka Kandhari (Bengaluru).
+let LAST_REFRESHED = new Date("2026-09-08T19:37:18");
+let TODAY = new Date("2026-07-31T00:00:00");
+let DAYS_OF_DATA = 30;
+let HAS_DATA_RANGE = true; // false once the backend has no bills at all (e.g. right after Clear All Data)
+let HAS_LAST_REFRESHED = true;
+let DATA_MIN_DATE = null; // true earliest bill date across ALL stored months - see applyDashboardData()
+let DATA_MAX_DATE = null; // true latest bill date across ALL stored months
+
+/* chart colours follow the CSS brand variables */
+const css = getComputedStyle(document.documentElement);
+const v = n => css.getPropertyValue(n).trim();
+const C = {
+  ink:v("--ink"), inkSoft:v("--ink-soft"), grid:"#F1EADD",
+  gold:v("--brand-gold"), orange:v("--brand-orange"), taupe:v("--brand-taupe"),
+  red:v("--brand-red"), redSoft:"#DCA99E", dark:v("--brand-dark")
+};
+function hexToRgb(h){ h = h.replace("#",""); return [0,2,4].map(i => parseInt(h.slice(i,i+2),16)).join(","); }
+
+const CHART_FONT = '"Palatino Linotype", "Book Antiqua", Palatino, Georgia, "Times New Roman", serif';
+if (window.Chart){
+  Chart.defaults.font.family = CHART_FONT;
+  Chart.defaults.font.size = 12;
+  Chart.defaults.color = C.inkSoft;
+  Object.assign(Chart.defaults.plugins.tooltip, {
+    backgroundColor:C.dark, titleColor:"#F3EFE6", bodyColor:"#F3EFE6",
+    padding:10, cornerRadius:4, displayColors:false
+  });
+}
+
+/* logo fallback if the image cannot load */
+const logoImg = document.getElementById("logoImg");
+const markNoLogo = () => document.getElementById("logoTile").classList.add("no-img");
+logoImg.addEventListener("error", markNoLogo);
+if (logoImg.complete && !logoImg.naturalWidth) markNoLogo();
+
+const gateLogoImg = document.getElementById("gateLogoImg");
+const markNoGateLogo = () => document.getElementById("gateLogoTile").classList.add("no-img");
+gateLogoImg.addEventListener("error", markNoGateLogo);
+if (gateLogoImg.complete && !gateLogoImg.naturalWidth) markNoGateLogo();
+
+/* =====================================================================
+   FORMATTING
+===================================================================== */
+const rs = n => "Rs. " + Math.round(n).toLocaleString("en-IN");
+function rsShort(val){
+  const a = Math.abs(val);
+  if (a >= 1e7) return "Rs. " + +(val/1e7).toFixed(2) + " Cr";
+  if (a >= 1e5) return "Rs. " + +(val/1e5).toFixed(1) + " L";
+  if (a >= 1e3) return "Rs. " + +(val/1e3).toFixed(0) + "K";
+  return "Rs. " + val;
+}
+const num = n => Math.round(n).toLocaleString("en-IN");
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const DAY_NAMES = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const fmtDate = d => `${String(d.getDate()).padStart(2,"0")} ${MONTHS[d.getMonth()]}`;
+const fmtDateLong = d => `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+function fmtDateTime(d){
+  let h = d.getHours(); const ap = h < 12 ? "AM" : "PM"; h = h % 12 || 12;
+  return `${fmtDateLong(d)}, ${String(h).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")} ${ap}`;
+}
+const fmtHour = h => (h % 12 === 0 ? 12 : h % 12) + (h < 12 ? " AM" : " PM");
+const isoLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+/* "Data Available" groups the exact set of months that actually have data
+   into contiguous runs, showing month names only (never exact dates) -
+   Apr+May+Jun all present -> "Apr 2026 to Jun 2026", but Apr+Jun with May
+   MISSING -> "Apr 2026, Jun 2026" (two separate runs, comma-joined) rather
+   than a single from/to range that would wrongly imply May has data too. */
+function groupMonthsLabel(monthStrs){
+  if (!monthStrs.length) return "No data available";
+  const keys = [...new Set(monthStrs)].map(s => s.split("-").map(Number)).sort((a,b) => (a[0]-b[0]) || (a[1]-b[1]));
+  const runs = [];
+  keys.forEach(([y,m]) => {
+    const last = runs[runs.length - 1];
+    const isNext = last && (
+      (last.endY === y && last.endM === m - 1) ||
+      (m === 1 && last.endY === y - 1 && last.endM === 12)
+    );
+    if (isNext){ last.endY = y; last.endM = m; }
+    else runs.push({ startY:y, startM:m, endY:y, endM:m });
+  });
+  return runs.map(r => {
+    const start = `${MONTHS[r.startM - 1]} ${r.startY}`;
+    const end = `${MONTHS[r.endM - 1]} ${r.endY}`;
+    return start === end ? start : `${start} to ${end}`;
+  }).join(", ");
+}
+
+/* =====================================================================
+   DATA — no longer embedded here. Loaded at startup from the backend API
+   (GET /api/meta, /api/bills, /api/sales, /api/discounts, /api/cancellations)
+   via loadDashboardData(), see startApp() near the bottom of this script.
+===================================================================== */
+
+const BRANCHES = ["Chennai", "Bengaluru"];
+let REASONS, DISCOUNT_REASONS, SERVICE_TYPES, DATA, SALES_DATA, DISCOUNT_DATA, ALL_BILLS, HOURLY_DATA;
+
+/* Display-only renames for the Overview's "Sales By Service Type" chart/export -
+   the underlying r.serviceType values (and SERVICE_TYPES, which they're matched
+   against in serviceTypeTotals) stay exactly as Posist/storage produce them, so
+   grouping/filtering logic is untouched; only the text shown to the user changes. */
+const SERVICE_TYPE_LABELS = {
+  "Home Delivery": "Zomato/E-commerce",
+  "Takeaway": "Restaurant Takeaway",
+  "Banquets & Catering": "Banquets/ODC",
+};
+const displayServiceType = s => SERVICE_TYPE_LABELS[s] || s;
+
+const dayOffset = d => { const x = new Date(TODAY); x.setDate(x.getDate()-d); return x; };
+
+/* Derives every dataset-dependent global from a DASHBOARD_DATA-shaped object.
+   Called once at startup with the embedded DASHBOARD_DATA, and again whenever
+   new Posist exports are uploaded/switched via the Input/History controls -
+   so the whole dashboard can hot-swap datasets without a page reload. */
+function applyDashboardData(raw){
+  REASONS = raw.meta.reasons;
+  DISCOUNT_REASONS = raw.meta.discountReasons;
+  SERVICE_TYPES = raw.meta.serviceTypes;
+
+  /* cancelled / "Deleted" KOT items — Cancelled KOTs page */
+  DATA = raw.cancelData.map(r => ({ ...r, date:new Date(r.date+"T00:00:00") }));
+
+  /* dish-wise sales, aggregated per day/outlet/item from the Bill Item Detailed Report — Dish-Wise Sales page */
+  SALES_DATA = raw.salesData.map(r => ({ ...r, date:new Date(r.date+"T00:00:00") }));
+
+  /* discount & voucher ledger, joined to each bill's Payment Report total — Discounts page */
+  DISCOUNT_DATA = raw.discountData.map(r => ({ ...r, date:new Date(r.date+"T00:00:00") }));
+
+  /* every settled bill (all service types) from the Payment Report — used for the Overview totals
+     and the Sales By Service Type split; HOURLY_DATA narrows this to Dine-In bills only, which is
+     what the Sales By Hour / Guests By Hour pages are labelled and built around. */
+  ALL_BILLS = raw.allBills.map(r => ({
+    ...r,
+    date:new Date(r.date+"T00:00:00"),
+    perCover: r.covers ? Math.round(r.salesValue / r.covers) : 0
+  }));
+  HOURLY_DATA = ALL_BILLS.filter(r => r.serviceType === "Dine-In");
+
+  HAS_DATA_RANGE = !!raw.meta.dataStart;
+  HAS_LAST_REFRESHED = !!raw.meta.lastRefreshed;
+  LAST_REFRESHED = HAS_LAST_REFRESHED ? new Date(raw.meta.lastRefreshed) : null;
+  TODAY = raw.meta.dataEnd ? new Date(raw.meta.dataEnd+"T00:00:00") : new Date();
+  DAYS_OF_DATA = raw.meta.dataStart
+    ? Math.round((TODAY - new Date(raw.meta.dataStart+"T00:00:00")) / 86400000)
+    : 30;
+
+  /* The custom-date-range calendar needs to navigate across EVERY month that
+     actually has data (e.g. June and July both stored) - meta.dataStart/
+     dataEnd already span everything ever uploaded too (see the server's
+     recompute_meta_dates() call after each upload), but deriving the
+     calendar's min/max directly from the bills actually loaded avoids
+     depending on that round-tripping exactly. */
+  if (ALL_BILLS.length){
+    const times = ALL_BILLS.map(r => r.date.getTime());
+    DATA_MIN_DATE = new Date(Math.min(...times));
+    DATA_MAX_DATE = new Date(Math.max(...times));
+  } else {
+    DATA_MIN_DATE = dayOffset(DAYS_OF_DATA);
+    DATA_MAX_DATE = TODAY;
+  }
+}
+
+/* A free-tier/serverless backend (Render app + Neon DB) that's idle, or
+   still busy finishing a huge upload's DB writes, can have a GET come back
+   as an HTML gateway-timeout page instead of JSON - which throws "Unexpected
+   token '<' ... is not valid JSON" if taken at face value (same class of
+   problem attemptUpload, above, already retries around for the upload
+   itself). Retrying a transient failure here a few times means a GET made
+   right after a big upload doesn't surface that raw parse error - or get
+   mistaken for the upload having failed, when it actually already succeeded. */
+// Same-origin fetches carry the HttpOnly session cookie automatically; a 401
+// means the session expired (or was never valid), so reload into the login page.
+function sessionExpired(){ location.reload(); }
+
+async function fetchJson(url, { attempts = 6, delayMs = 5000 } = {}){
+  for (let attempt = 1; attempt <= attempts; attempt++){
+    try {
+      const res = await fetch(url, {});
+      let body;
+      try { body = await res.json(); }
+      catch {
+        throw Object.assign(new Error(`${url} returned ${res.status} with a non-JSON response - it may still be waking up`), { transient:true });
+      }
+      if (res.status === 401){ sessionExpired(); throw new Error("Session expired"); }
+      if (!res.ok){
+        throw Object.assign(new Error(body.detail || `${url} returned ${res.status}`), { transient: res.status >= 500 });
+      }
+      return body;
+    } catch (err){
+      if (!err.transient || attempt === attempts) throw err;
+      await new Promise(r => setTimeout(r, delayMs));
+    }
+  }
+}
+
+/* Fetches the full dataset from the backend API and
+   reshapes it into the DASHBOARD_DATA-like object applyDashboardData expects.
+   Called once at startup by startApp(), below. */
+async function loadDashboardData(){
+  const [meta, allBills, salesData, discountData, cancelData] = await Promise.all([
+    fetchJson("/api/meta"),
+    fetchJson("/api/bills"),
+    fetchJson("/api/sales"),
+    fetchJson("/api/discounts"),
+    fetchJson("/api/cancellations"),
+  ]);
+  return { meta, allBills, salesData, discountData, cancelData };
+}
+
+const HOURS = [8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23];
+
+/* =====================================================================
+   STATE & PERIOD
+===================================================================== */
+const state = { branch:"All", preset:"month", customFrom:null, customTo:null, dayType:"all" };
+
+function periodRange(){
+  const start = new Date(TODAY), end = new Date(TODAY);
+  const p = state.preset;
+  if (p === "yesterday"){ start.setDate(start.getDate()-1); end.setDate(end.getDate()-1); }
+  else if (p === "7d"){ start.setDate(start.getDate()-6); }
+  else if (p === "month"){ start.setDate(1); }
+  else if (p === "lastmonth"){ start.setMonth(start.getMonth()-1, 1); end.setDate(0); }
+  else if (p === "custom" && state.customFrom){ return [state.customFrom, state.customTo]; }
+  start.setHours(0,0,0,0); end.setHours(23,59,59,999);
+  return [start, end];
+}
+/* The header always shows the actual dates covered, whichever option is picked
+   (e.g. "Yesterday" shows as "10 Sep 2026"; "Last 7 Days" as "5 Sep 2026 to 11 Sep 2026"). */
+function periodLabel(){
+  const [s, e] = periodRange();
+  if (s.toDateString() === e.toDateString()) return fmtDateLong(s);
+  return `${fmtDateLong(s)} to ${fmtDateLong(e)}`;
+}
+const DAY_TYPE_LABELS = { weekday:"Weekdays Only", weekend:"Weekends Only", holiday:"Public Holidays Only" };
+function outletLabel(){
+  const base = state.branch === "All" ? "Both Outlets" : state.branch + " Outlet";
+  const dt = DAY_TYPE_LABELS[state.dayType];
+  return dt ? `${base} · ${dt}` : base;
+}
+/* "Holiday" checks each row against its OWN branch's holiday calendar (via
+   HOLIDAYS_2026/holidaysForBranch, declared further down with the date-picker
+   calendar - function declarations are hoisted, so the call order here is fine)
+   - relevant even with "Both Outlets" selected, since Chennai and Bengaluru don't
+   always observe the same dates. */
+function matchesDayType(r){
+  if (!state.dayType || state.dayType === "all") return true;
+  const dow = r.date.getDay();
+  if (state.dayType === "weekday") return dow >= 1 && dow <= 5;
+  if (state.dayType === "weekend") return dow === 0 || dow === 6;
+  if (state.dayType === "holiday") return holidaysForBranch(r.branch).has(isoLocal(r.date));
+  return true;
+}
+function inScope(rows){
+  const [s, e] = periodRange();
+  return rows.filter(r => r.date >= s && r.date <= e && (state.branch === "All" || r.branch === state.branch) && matchesDayType(r));
+}
+
+/* =====================================================================
+   EXCEL-STYLE TABLE
+===================================================================== */
+const FILTER_ICON = '<svg viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><path d="M2 3.5h8L6 8.5z"/></svg>';
+const FUNNEL_ICON = '<svg viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><path d="M1 1.5h10L7.2 6v4.2L4.8 11V6z"/></svg>';
+let openPop = null;
+function closePop(){ if (openPop){ openPop.el.remove(); openPop.btn.setAttribute("aria-expanded","false"); openPop = null; } }
+document.addEventListener("mousedown", e => {
+  if (openPop && !openPop.el.contains(e.target) && !openPop.btn.contains(e.target)) closePop();
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape" && openPop){ const b = openPop.btn; closePop(); b.focus(); } });
+document.addEventListener("scroll", e => { if (openPop && !openPop.el.contains(e.target)) closePop(); }, true);
+window.addEventListener("resize", closePop);
+
+class DataTable {
+  /* columns: { key, label, type:"text"|"num"|"date", right, text(r), sort(r), cell(r), total(rows), cls } */
+  constructor({ mount, columns, sort, noun, empty, onChange, sheetName }){
+    this.el = document.getElementById(mount);
+    this.columns = columns;
+    this.sort = sort;
+    this.noun = noun;
+    this.empty = empty;
+    this.onChange = onChange;
+    this.sheetName = sheetName || noun[1];
+    this.filters = {};
+    this.all = [];
+    this.build();
+  }
+  col(key){ return this.columns.find(c => c.key === key); }
+  build(){
+    const ths = this.columns.map(c => `
+      <th class="${c.right ? "r" : ""}" data-key="${c.key}" aria-sort="none">
+        <div class="th-in">
+          <button class="th-label" data-sort="${c.key}" title="Sort">${esc(c.label)}<span class="arrow"></span></button>
+          <button class="xf-btn" data-filter="${c.key}" aria-haspopup="dialog" aria-expanded="false" aria-label="Filter ${esc(c.label)}">${FILTER_ICON}</button>
+        </div>
+      </th>`).join("");
+    this.el.innerHTML = `
+      <div class="table-scroll">
+        <table class="data">
+          <thead>
+            <tr>${ths}</tr>
+            <tr class="total-row"></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="table-foot">
+        <span class="tf-count"></span>
+        <div class="tf-actions">
+          <button class="link-btn tf-export" type="button" title="Downloads exactly what's shown in this table as an Excel file">Excel ⭳</button>
+          <button class="link-btn tf-clear" hidden>Clear All Filters</button>
+        </div>
+      </div>`;
+    this.tbody = this.el.querySelector("tbody");
+    this.headRow = this.el.querySelector("thead tr:first-child");
+    this.totalRow = this.el.querySelector("tr.total-row");
+    this.el.querySelector(".tf-export").addEventListener("click", () => exportSingleTable(this));
+    this.el.querySelector("thead").addEventListener("click", e => {
+      const s = e.target.closest("[data-sort]");
+      if (s){
+        const key = s.dataset.sort;
+        if (this.sort.key === key) this.sort.dir = this.sort.dir === "asc" ? "desc" : "asc";
+        else this.sort = { key, dir: this.col(key).type === "text" ? "asc" : "desc" };
+        this.render();
+        return;
+      }
+      const f = e.target.closest("[data-filter]");
+      if (f){
+        if (openPop && openPop.btn === f){ closePop(); return; }
+        this.openFilter(this.col(f.dataset.filter), f);
+      }
+    });
+    this.el.querySelector(".tf-clear").addEventListener("click", () => { this.filters = {}; this.render(); });
+  }
+  setData(rows){ this.all = rows; this.render(); }
+  sortVal(c, r){ return c.sort ? c.sort(r) : c.text(r); }
+  passes(r, exceptKey){
+    for (const key in this.filters){
+      if (key === exceptKey) continue;
+      const set = this.filters[key];
+      if (set && set.size && set.has(this.col(key).text(r))) return false;
+    }
+    return true;
+  }
+  rows(){
+    const c = this.col(this.sort.key), dir = this.sort.dir === "asc" ? 1 : -1;
+    return this.all.filter(r => this.passes(r)).sort((a,b) => {
+      let x = this.sortVal(c, a), y = this.sortVal(c, b);
+      if (typeof x === "string"){ x = x.toLowerCase(); y = y.toLowerCase(); }
+      return x < y ? -dir : x > y ? dir : 0;
+    });
+  }
+  uniqueValues(c){
+    const map = new Map();
+    this.all.forEach(r => { if (this.passes(r, c.key)){ const t = c.text(r); if (!map.has(t)) map.set(t, this.sortVal(c, r)); } });
+    return [...map.entries()].map(([text, sv]) => ({ text, sv }))
+      .sort((a,b) => typeof a.sv === "string" ? a.sv.localeCompare(b.sv) : a.sv - b.sv);
+  }
+  isFiltered(key){ return !!(this.filters[key] && this.filters[key].size); }
+  showOnly(key, text){
+    const c = this.col(key);
+    const all = new Set(this.all.map(r => c.text(r)));
+    all.delete(text);
+    this.filters[key] = all;
+    this.render();
+  }
+  clearFilter(key){ delete this.filters[key]; this.render(); }
+  singleIncluded(key){
+    if (!this.isFiltered(key)) return null;
+    const inc = this.uniqueValues(this.col(key)).filter(u => !this.filters[key].has(u.text));
+    return inc.length === 1 ? inc[0].text : null;
+  }
+  render(){
+    const rows = this.rows();
+    const cols = this.columns;
+    if (!rows.length){
+      this.tbody.innerHTML = `<tr><td class="empty-cell" colspan="${cols.length}">${this.empty}</td></tr>`;
+    } else {
+      this.tbody.innerHTML = rows.map(r => "<tr>" + cols.map(c =>
+        `<td class="${[c.right ? "r" : "", c.cls || ""].join(" ")}">${c.cell ? c.cell(r) : esc(c.text(r))}</td>`
+      ).join("") + "</tr>").join("");
+    }
+    // totals row: sits right under the column headers rather than at the end of the table.
+    // label spans the leading columns that have no total.
+    let lead = 0; while (lead < cols.length && !cols[lead].total) lead++;
+    let totalHtml = `<td colspan="${Math.max(1, lead)}">Total (${num(rows.length)} ${rows.length === 1 ? this.noun[0] : this.noun[1]})</td>`;
+    cols.slice(Math.max(1, lead)).forEach(c => { totalHtml += `<td class="${c.right ? "r" : ""}">${c.total ? c.total(rows) : ""}</td>`; });
+    this.totalRow.innerHTML = totalHtml;
+    // pin the totals row directly beneath the sticky header row while scrolling
+    const headH = this.headRow.getBoundingClientRect().height;
+    this.totalRow.querySelectorAll("td").forEach(td => { td.style.top = headH + "px"; });
+
+    this.el.querySelectorAll("thead th").forEach(th => {
+      const key = th.dataset.key, on = this.sort.key === key;
+      th.querySelector(".arrow").textContent = on ? (this.sort.dir === "asc" ? "▲" : "▼") : "";
+      th.setAttribute("aria-sort", on ? (this.sort.dir === "asc" ? "ascending" : "descending") : "none");
+      const btn = th.querySelector(".xf-btn"), f = this.isFiltered(key);
+      btn.classList.toggle("on", f);
+      btn.innerHTML = f ? FUNNEL_ICON : FILTER_ICON;
+    });
+    const anyFilter = Object.keys(this.filters).some(k => this.isFiltered(k));
+    const n = this.noun[1].toLowerCase();
+    this.el.querySelector(".tf-count").textContent = anyFilter
+      ? `Showing ${num(rows.length)} of ${num(this.all.length)} ${n} (filters applied)`
+      : `Showing all ${num(rows.length)} ${n}`;
+    this.el.querySelector(".tf-clear").hidden = !anyFilter;
+    if (this.onChange) this.onChange(this);
+  }
+  openFilter(c, btn){
+    closePop();
+    const values = this.uniqueValues(c).map((u,i) => ({ ...u, i }));
+    const excluded = this.filters[c.key] || new Set();
+    const checked = new Set(values.filter(u => !excluded.has(u.text)).map(u => u.text));
+    const words = c.type === "num" ? ["Smallest To Largest","Largest To Smallest"]
+                : c.type === "date" ? ["Oldest To Newest","Newest To Oldest"] : ["A To Z","Z To A"];
+    const cur = this.sort.key === c.key ? this.sort.dir : null;
+    const pop = document.createElement("div");
+    pop.className = "xf-pop";
+    pop.setAttribute("role","dialog");
+    pop.setAttribute("aria-label", "Filter " + c.label);
+    pop.innerHTML = `
+      <button class="xf-item ${cur === "asc" ? "cur" : ""}" data-s="asc">↑ Sort ${words[0]}</button>
+      <button class="xf-item ${cur === "desc" ? "cur" : ""}" data-s="desc">↓ Sort ${words[1]}</button>
+      <button class="xf-item" data-clear ${this.isFiltered(c.key) ? "" : "disabled"}>✕ Clear Filter From “${esc(c.label)}”</button>
+      <div class="xf-sep"></div>
+      <input class="xf-search" type="search" placeholder="Search" aria-label="Search values">
+      <div class="xf-list"></div>
+      <div class="xf-actions"><button class="xf-ok">OK</button><button class="xf-cancel">Cancel</button></div>`;
+    document.body.appendChild(pop);
+    const list = pop.querySelector(".xf-list"), okBtn = pop.querySelector(".xf-ok"), search = pop.querySelector(".xf-search");
+    let q = "";
+    const visible = () => q ? values.filter(u => u.text.toLowerCase().includes(q)) : values;
+    const syncAll = () => {
+      const vis = visible(), box = list.querySelector("[data-all]");
+      const on = vis.filter(u => checked.has(u.text)).length;
+      if (box){ box.checked = vis.length > 0 && on === vis.length; box.indeterminate = on > 0 && on < vis.length; }
+      okBtn.disabled = on === 0;
+    };
+    const draw = () => {
+      const vis = visible();
+      list.innerHTML = `<label class="xf-row xf-all"><input type="checkbox" data-all> <span>(Select All${q ? " Search Results" : ""})</span></label>` +
+        (vis.length ? vis.map(u => `<label class="xf-row"><input type="checkbox" data-i="${u.i}" ${checked.has(u.text) ? "checked" : ""}> <span title="${esc(u.text)}">${esc(u.text)}</span></label>`).join("")
+                    : `<div class="xf-none">No matching values</div>`);
+      syncAll();
+    };
+    draw();
+    list.addEventListener("change", e => {
+      const t = e.target;
+      if (t.dataset.all !== undefined){
+        visible().forEach(u => t.checked ? checked.add(u.text) : checked.delete(u.text));
+        draw();
+      } else if (t.dataset.i !== undefined){
+        const u = values[+t.dataset.i];
+        t.checked ? checked.add(u.text) : checked.delete(u.text);
+        syncAll();
+      }
+    });
+    search.addEventListener("input", () => { q = search.value.trim().toLowerCase(); draw(); });
+    pop.addEventListener("click", e => {
+      const s = e.target.closest("[data-s]");
+      if (s){ this.sort = { key:c.key, dir:s.dataset.s }; closePop(); this.render(); return; }
+      if (e.target.closest("[data-clear]")){ closePop(); this.clearFilter(c.key); return; }
+      if (e.target.closest(".xf-cancel")){ closePop(); btn.focus(); return; }
+      if (e.target.closest(".xf-ok")){
+        const pool = visible();
+        const include = new Set(pool.filter(u => checked.has(u.text)).map(u => u.text));
+        const ex = new Set(values.filter(u => !include.has(u.text)).map(u => u.text));
+        if (ex.size) this.filters[c.key] = ex; else delete this.filters[c.key];
+        closePop(); this.render();
+      }
+    });
+    search.addEventListener("keydown", e => { if (e.key === "Enter" && !okBtn.disabled) okBtn.click(); });
+
+    // position under the button, kept inside the window
+    const rect = btn.getBoundingClientRect(), pw = pop.offsetWidth, ph = pop.offsetHeight;
+    let left = Math.min(rect.right - pw, window.innerWidth - pw - 8);
+    left = Math.max(8, rect.right - pw < 8 ? rect.left : left);
+    let top = rect.bottom + 4;
+    if (top + ph > window.innerHeight - 8) top = Math.max(8, rect.top - ph - 4);
+    pop.style.left = left + "px";
+    pop.style.top = top + "px";
+    btn.setAttribute("aria-expanded","true");
+    openPop = { el:pop, btn };
+    search.focus();
+  }
+}
+
+/* column helpers */
+const colDate   = { key:"date", label:"Date", type:"date", text:r => fmtDate(r.date), sort:r => r.date.getTime() };
+const colDay    = { key:"day", label:"Day", type:"text", text:r => DAY_NAMES[r.date.getDay()], sort:r => (r.date.getDay()+6)%7 };
+const colHour   = { key:"hour", label:"Hour", type:"num", text:r => fmtHour(r.hour), sort:r => r.hour };
+const colOutlet = { key:"branch", label:"Outlet", type:"text", text:r => r.branch };
+const colBill   = { key:"bill", label:"Bill No.", type:"text", text:r => r.bill, cls:"soft" };
+const sumRs  = f => rows => rs(rows.reduce((s,r) => s + f(r), 0));
+const sumNum = f => rows => num(rows.reduce((s,r) => s + f(r), 0));
+const moneyCol = (key, label, f, total = true) =>
+  ({ key, label, type:"num", right:true, text:r => rs(f(r)), sort:f, total: total ? sumRs(f) : null });
+
+/* =====================================================================
+   TABLES
+===================================================================== */
+const tblCancel = new DataTable({
+  mount:"tblCancel",
+  sheetName:"Cancelled KOT's",
+  noun:["Entry","Entries"],
+  empty:"No cancelled items match these filters. Clear a filter or choose a longer period.",
+  sort:{ key:"date", dir:"desc" },
+  columns:[
+    colDate, colOutlet, colBill,
+    { key:"item", label:"Dish Name", type:"text", text:r => r.item, cls:"wrap" },
+    { key:"qty", label:"Quantity", type:"num", right:true, text:r => String(r.qty), sort:r => r.qty, total:sumNum(r => r.qty) },
+    moneyCol("rate", "Price Per Item", r => r.rate, false),
+    moneyCol("value", "Total Value", r => r.value),
+    { key:"reason", label:"Reason For Cancellation", type:"text", text:r => r.reason, cls:"wrap soft" }
+  ],
+  onChange:() => renderReasonChart()
+});
+
+const tblItems = new DataTable({
+  mount:"tblItems",
+  sheetName:"Dish-Wise Sales",
+  noun:["Dish","Dishes"],
+  empty:"No dishes sold in this period. Choose a longer period.",
+  sort:{ key:"value", dir:"desc" },
+  columns:[
+    { key:"category", label:"Menu Section", type:"text", text:r => r.category, cell:r => `<span class="cat-tag">${esc(r.category)}</span>` },
+    { key:"item", label:"Dish Name", type:"text", text:r => r.item, cls:"wrap" },
+    { key:"qty", label:"Portions Sold", type:"num", right:true, text:r => num(r.qty), sort:r => r.qty, total:sumNum(r => r.qty) },
+    { key:"value", label:"Sales Value", type:"num", right:true, text:r => rs(r.value), sort:r => r.value, total:sumRs(r => r.value),
+      cell:r => `<button type="button" class="link-btn item-period-btn" data-item="${esc(r.item)}" title="See the period-wise rate breakdown behind this value">${rs(r.value)}</button>` },
+    { key:"share", label:"Share Of Sales", type:"num", right:true, text:r => r.share.toFixed(1) + "%", sort:r => r.share,
+      total:rows => rows.reduce((s,r) => s + r.share, 0).toFixed(1) + "%" }
+  ]
+});
+
+const tblDiscounts = new DataTable({
+  mount:"tblDiscounts",
+  sheetName:"Discounts",
+  noun:["Bill","Bills"],
+  empty:"No discounted bills match these filters.",
+  sort:{ key:"date", dir:"desc" },
+  columns:[
+    colDate, colOutlet, colBill,
+    moneyCol("itemValue", "Bill Amount", r => r.itemValue),
+    moneyCol("discountValue", "Discount", r => r.discountValue),
+    moneyCol("net", "Amount After Discount", r => r.net),
+    { key:"classification", label:"Bill Classification", type:"text", text:r => r.isFull ? "Fully Complimentary" : "Partly Discounted" },
+    { key:"type", label:"Discount Type", type:"text", text:r => r.type },
+    { key:"remarks", label:"Remarks", type:"text", text:r => r.remarks, cls:"wrap soft" }
+  ]
+});
+
+const tblHourly = new DataTable({
+  mount:"tblHourly",
+  sheetName:"Guests By Hour",
+  noun:["Bill","Bills"],
+  empty:"No bills match these filters.",
+  sort:{ key:"date", dir:"desc" },
+  columns:[
+    colDate, colDay, colHour, colOutlet, colBill,
+    { key:"covers", label:"Guests", type:"num", right:true, text:r => String(r.covers), sort:r => r.covers, total:sumNum(r => r.covers) },
+    moneyCol("salesValue", "Bill Amount", r => r.salesValue),
+    { key:"perCover", label:"Spend Per Guest", type:"num", right:true, text:r => rs(r.perCover), sort:r => r.perCover,
+      total:rows => { const g = rows.reduce((s,r) => s + r.covers, 0); return rs(g ? rows.reduce((s,r) => s + r.salesValue, 0)/g : 0); } }
+  ]
+});
+
+const tblHourlySales = new DataTable({
+  mount:"tblHourlySales",
+  sheetName:"Sales By Hour",
+  noun:["Bill","Bills"],
+  empty:"No bills match these filters.",
+  sort:{ key:"salesValue", dir:"desc" },
+  columns:[ colDate, colDay, colHour, colOutlet, colBill, moneyCol("salesValue", "Bill Amount", r => r.salesValue) ]
+});
+
+/* =====================================================================
+   CHARTS
+===================================================================== */
+const charts = {};
+function upsertChart(id, config, update){
+  if (!window.Chart) return;
+  if (charts[id]){ update(charts[id]); charts[id].update(); return; }
+  charts[id] = new Chart(document.getElementById(id).getContext("2d"), config);
+}
+const axisTitle = t => t ? { display:true, text:t, color:C.inkSoft, font:{ size:12, weight:"600" } } : { display:false };
+const valueAxis = (money, small, title) => ({
+  beginAtZero:true,
+  title:axisTitle(title),
+  ticks:{ maxTicksLimit: small ? 4 : 6, font:{ size: small ? 11 : 12 }, precision:0, callback:val => money ? rsShort(val) : num(val) },
+  grid:{ color:C.grid }, border:{ display:false }
+});
+/* Splits a label into lines no wider than maxPx, measured in the chart font,
+   so long dish / reason names are shown in full instead of being cut off. */
+const measureCtx = document.createElement("canvas").getContext("2d");
+function wrapLabel(text, maxPx, size){
+  text = String(text);
+  measureCtx.font = `${size}px ${CHART_FONT}`;
+  if (measureCtx.measureText(text).width <= maxPx) return text;
+  const lines = []; let line = "";
+  text.split(" ").forEach(word => {
+    const test = line ? line + " " + word : word;
+    if (line && measureCtx.measureText(test).width > maxPx){ lines.push(line); line = word; }
+    else line = test;
+  });
+  if (line) lines.push(line);
+  return lines;
+}
+/* category axis for hours (auto-skips on small charts) */
+const categoryAxis = (small, maxTicks, title) => ({
+  title:axisTitle(title),
+  ticks:{ font:{ size: small ? 11 : 12 }, color:C.ink, maxRotation:0, autoSkip:true, maxTicksLimit:maxTicks || 20 },
+  grid:{ display:false }, border:{ color:C.grid }
+});
+/* category axis for names: every name is shown, wrapped onto extra lines when space is short.
+   The room per label is worked out from the chart's current width, so it re-wraps on resize. */
+const nameAxis = small => {
+  const size = small ? 11 : 12;
+  return {
+    ticks:{ font:{ size, lineHeight:1.2 }, color:C.ink, maxRotation:0, autoSkip:false,
+      callback(value){
+        const w = this.chart.width || 0;
+        const room = this.isHorizontal()
+          ? w / Math.max(1, this.chart.data.labels.length) - 12
+          : Math.min(240, Math.max(90, w * 0.34));
+        return wrapLabel(this.getLabelForValue(value), room, size);
+      } },
+    grid:{ display:false }, border:{ color:C.grid }
+  };
+};
+const rsTip = { callbacks:{ label:ctx => rs(ctx.parsed[ctx.chart.options.indexAxis === "y" ? "x" : "y"]) } };
+
+function reasonCounts(rows){ const c = {}; REASONS.forEach(r => c[r] = 0); rows.forEach(r => c[r.reason] += r.qty); return c; }
+function discountTotals(rows){ const t = {}; DISCOUNT_REASONS.forEach(r => t[r] = 0); rows.forEach(r => t[r.reason] += r.discountValue); return t; }
+function sumByHour(rows, f){ const s = {}; HOURS.forEach(h => s[h] = 0); rows.forEach(r => s[r.hour] += r[f]); return HOURS.map(h => s[h]); }
+
+function renderReasonChart(){
+  const counts = reasonCounts(inScope(DATA));
+  const values = REASONS.map(l => counts[l]);
+  const picked = tblCancel.singleIncluded("reason");
+  const colors = REASONS.map(l => !picked || l === picked ? C.red : C.redSoft);
+  const pickAt = evt => {
+    const el = charts.reasonChart.getElementsAtEventForMode(evt, "nearest", { intersect:false, axis:"y" }, true);
+    return el.length ? REASONS[el[0].index] : null;
+  };
+  upsertChart("reasonChart", {
+    type:"bar",
+    data:{ labels:REASONS, datasets:[{ data:values, backgroundColor:colors, borderRadius:3, maxBarThickness:26 }] },
+    options:{
+      indexAxis:"y", responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ display:false }, tooltip:{ callbacks:{ label:c => num(c.parsed.x) + " items" } } },
+      scales:{ x:valueAxis(false, false, "Number Of Items Cancelled"), y:nameAxis(false) },
+      onClick:evt => {
+        const label = pickAt(evt); if (!label) return;
+        if (tblCancel.singleIncluded("reason") === label) tblCancel.clearFilter("reason");
+        else tblCancel.showOnly("reason", label);
+      },
+      onHover:evt => { charts.reasonChart.canvas.style.cursor = pickAt(evt) ? "pointer" : "default"; }
+    }
+  }, ch => { ch.data.datasets[0].data = values; ch.data.datasets[0].backgroundColor = colors; });
+  document.getElementById("clearReason").classList.toggle("show", tblCancel.isFiltered("reason"));
+}
+
+/* -> {dow(0-6): string[]} of holiday names falling on that weekday within
+   the CURRENT period, for whichever outlet(s) are selected - used to flag a
+   heatmap day-row as "includes a public holiday" even though each row
+   aggregates every occurrence of that weekday across the period, not a
+   single date, so it can't just check one row's own date. */
+function weekdayHolidayNames(){
+  const [s, e] = periodRange();
+  const holidays = holidaysForBranch(state.branch);
+  const byDow = {};
+  for (let t = new Date(s); t <= e; t.setDate(t.getDate()+1)){
+    const names = holidays.get(isoLocal(t));
+    if (names) (byDow[t.getDay()] || (byDow[t.getDay()] = [])).push(...names);
+  }
+  return byDow;
+}
+
+function heatmapHTML(rows, field, color, fmt, lightText, unit){
+  const m = DAY_NAMES.map(() => HOURS.map(() => 0));
+  rows.forEach(r => m[r.date.getDay()][HOURS.indexOf(r.hour)] += r[field]);
+  let max = 0, min = Infinity;
+  m.forEach(row => row.forEach(x => { if (x > max) max = x; if (x > 0 && x < min) min = x; }));
+  if (min === Infinity) min = 0;
+  const rgb = hexToRgb(color);
+  const holidayNames = weekdayHolidayNames();
+  const anyHoliday = Object.keys(holidayNames).length > 0;
+  const holidayNote = anyHoliday
+    ? `<div class="heatmap-holiday-note"><span class="day-holiday-dot" style="visibility:visible"></span>Public holiday (${esc(outletLabel())})</div>`
+    : "";
+  const legend = `<div class="heatmap-legend">
+      ${holidayNote}
+      <div class="legend-bar ${field === "covers" ? "guests" : "sales"}" role="img" aria-label="Colour scale from lower to higher"></div>
+      <div class="legend-scale"><span>Lower: <strong>${unit(min)}</strong></span><span>Higher: <strong>${unit(max)}</strong></span></div>
+    </div>`;
+  let html = `<table class="heatmap"><colgroup><col class="day-col">${HOURS.map(() => "<col>").join("")}</colgroup><thead><tr><th></th>`;
+  HOURS.forEach(h => html += `<th>${fmtHour(h)}</th>`);
+  html += "</tr></thead><tbody>";
+  [1,2,3,4,5,6,0].forEach(dow => {
+    const hol = holidayNames[dow];
+    // Always render the dot span (never omit it) - a row without a holiday
+    // still needs the same reserved width, via visibility:hidden rather
+    // than leaving it out entirely, so every day label lines up at the
+    // same x position instead of the ones with a dot shifting right.
+    const dotTitle = hol ? ` title="Public holiday in this period: ${esc(hol.join(", "))}"` : "";
+    const dot = `<span class="day-holiday-dot"${hol ? "" : " style=\"visibility:hidden\""}${dotTitle}></span>`;
+    html += `<tr><td class="day-label">${dot}${DAY_NAMES[dow]}</td>`;
+    m[dow].forEach((x,i) => {
+      const title = `${DAY_NAMES[dow]}, ${fmtHour(HOURS[i])}: ${unit(x)}`;
+      if (!x){ html += `<td class="cell empty" title="${title}">–</td>`; return; }
+      const a = 0.14 + 0.81*(x/max);
+      html += `<td class="cell${lightText && a > 0.5 ? " dark" : ""}" style="background:rgba(${rgb},${a.toFixed(2)})" title="${title}">${fmt(x)}</td>`;
+    });
+    html += "</tr>";
+  });
+  html += "</tbody></table>";
+  /* legend rendered first so the colour scale sits above the grid, right below the heading */
+  return legend + html;
+}
+
+/* =====================================================================
+   PAGE RENDERERS
+===================================================================== */
+function serviceTypeTotals(rows){ const t = {}; SERVICE_TYPES.forEach(s => t[s] = 0); rows.forEach(r => t[r.serviceType] += r.salesValue); return t; }
+
+function renderOverview(allBills, hourly, disc, cancel, items){
+  const sales = allBills.reduce((s,r) => s + r.salesValue, 0);
+  document.getElementById("ovSales").textContent = rs(sales);
+  document.getElementById("ovDiscount").textContent = rs(disc.reduce((s,r) => s + r.discountValue, 0));
+  document.getElementById("ovCancelQty").textContent = num(cancel.reduce((s,r) => s + r.qty, 0));
+  document.getElementById("ovCancelValue").textContent = rs(cancel.reduce((s,r) => s + r.value, 0));
+
+  const st = serviceTypeTotals(allBills), modeVals = SERVICE_TYPES.map(s => Math.round(st[s]));
+  upsertChart("modeOfSalesChart", {
+    type:"bar",
+    data:{ labels:SERVICE_TYPES.map(displayServiceType), datasets:[{ data:modeVals, backgroundColor:[C.gold, C.orange, C.taupe, C.red], borderRadius:3, maxBarThickness:28 }] },
+    options:{ indexAxis:"y", responsive:true, maintainAspectRatio:false,
+      // % is computed from the chart's OWN current data (not the outer `sales`
+      // closed over at chart-creation time) - upsertChart only replaces the
+      // data array on later re-renders (e.g. switching outlet), never this
+      // callback, so a closed-over total would keep showing whatever outlet
+      // was selected when the chart was first created instead of the current one.
+      plugins:{ legend:{ display:false }, tooltip:{ callbacks:{ label:c => {
+        const total = c.chart.data.datasets[0].data.reduce((a,b) => a+b, 0);
+        return `${rs(c.parsed.x)} (${total ? Math.round(c.parsed.x/total*100) : 0}% Of Sales)`;
+      } } } },
+      scales:{ x:valueAxis(true, false, "Sales (Rs.)"), y:nameAxis(false) } }
+  }, ch => { ch.data.datasets[0].data = modeVals; });
+
+  const hs = sumByHour(hourly, "salesValue");
+  upsertChart("ovHourlySalesChart", {
+    type:"bar", data:{ labels:HOURS.map(fmtHour), datasets:[{ data:hs, backgroundColor:C.gold, borderRadius:2 }] },
+    options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ display:false }, tooltip:rsTip },
+      scales:{ x:categoryAxis(true, 7), y:valueAxis(true, true) } }
+  }, ch => { ch.data.datasets[0].data = hs; });
+
+  const hc = sumByHour(hourly, "covers");
+  upsertChart("ovHourlyCoversChart", {
+    type:"bar", data:{ labels:HOURS.map(fmtHour), datasets:[{ data:hc, backgroundColor:C.orange, borderRadius:2 }] },
+    options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ display:false }, tooltip:{ callbacks:{ label:c => num(c.parsed.y) + " guests" } } },
+      scales:{ x:categoryAxis(true, 7), y:valueAxis(false, true) } }
+  }, ch => { ch.data.datasets[0].data = hc; });
+
+  const top = items.slice(0, 10);
+  const tl = top.map(i => i.item), tv = top.map(i => i.value);
+  upsertChart("ovTopItemsChart", {
+    type:"bar", data:{ labels:tl, datasets:[{ data:tv, backgroundColor:C.taupe, borderRadius:2 }] },
+    options:{ indexAxis:"y", responsive:true, maintainAspectRatio:false, plugins:{ legend:{ display:false }, tooltip:rsTip },
+      scales:{ x:valueAxis(true, true), y:nameAxis(true) } }
+  }, ch => { ch.data.labels = tl; ch.data.datasets[0].data = tv; });
+
+  const dt = discountTotals(disc), dv = DISCOUNT_REASONS.map(r => dt[r]);
+  upsertChart("ovDiscountsChart", {
+    type:"bar", data:{ labels:DISCOUNT_REASONS, datasets:[{ data:dv, backgroundColor:C.gold, borderRadius:2 }] },
+    options:{ indexAxis:"y", responsive:true, maintainAspectRatio:false, plugins:{ legend:{ display:false }, tooltip:rsTip },
+      scales:{ x:valueAxis(true, true), y:nameAxis(true) } }
+  }, ch => { ch.data.datasets[0].data = dv; });
+
+  const ct = reasonCounts(cancel), cv = REASONS.map(r => ct[r]);
+  upsertChart("ovKotsChart", {
+    type:"bar", data:{ labels:REASONS, datasets:[{ data:cv, backgroundColor:C.red, borderRadius:2, maxBarThickness:64 }] },
+    options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ display:false }, tooltip:{ callbacks:{ label:c => num(c.parsed.y) + " items" } } },
+      scales:{ x:nameAxis(true), y:valueAxis(false, true) } }
+  }, ch => { ch.data.datasets[0].data = cv; });
+}
+
+function renderHourlySales(hourly){
+  const sales = hourly.reduce((s,r) => s + r.salesValue, 0);
+  document.getElementById("statSalesTotal").textContent = rs(sales);
+  document.getElementById("statSalesBills").textContent = num(hourly.length);
+  document.getElementById("statSalesAvg").textContent = rs(hourly.length ? sales / hourly.length : 0);
+  document.getElementById("salesHeatmapWrap").innerHTML =
+    heatmapHTML(hourly, "salesValue", C.gold, x => Math.round(x/1000), true, x => rs(x));
+  const vals = sumByHour(hourly, "salesValue");
+  upsertChart("salesByHourChart", {
+    type:"bar", data:{ labels:HOURS.map(fmtHour), datasets:[{ data:vals, backgroundColor:C.gold, borderRadius:3, maxBarThickness:34 }] },
+    options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ display:false }, tooltip:rsTip },
+      scales:{ y:valueAxis(true, false, "Dine In Sales (Rs.)"), x:categoryAxis(false, 20, "Hour Of The Day") } }
+  }, ch => { ch.data.datasets[0].data = vals; });
+  tblHourlySales.setData(hourly);
+}
+
+function renderHourlyCovers(hourly){
+  const guests = hourly.reduce((s,r) => s + r.covers, 0), sales = hourly.reduce((s,r) => s + r.salesValue, 0);
+  document.getElementById("statHourlyCovers").textContent = num(guests);
+  document.getElementById("statHourlySales").textContent = rs(sales);
+  document.getElementById("statHourlyAvg").textContent = rs(guests ? sales/guests : 0);
+  document.getElementById("heatmapWrap").innerHTML =
+    heatmapHTML(hourly, "covers", C.orange, x => x, false, x => num(x) + (x === 1 ? " Guest" : " Guests"));
+  const s = sumByHour(hourly, "salesValue"), g = sumByHour(hourly, "covers");
+  const vals = s.map((x,i) => g[i] ? Math.round(x/g[i]) : 0);
+  upsertChart("avgPerCoverChart", {
+    type:"line",
+    data:{ labels:HOURS.map(fmtHour), datasets:[{ data:vals, borderColor:C.orange, backgroundColor:`rgba(${hexToRgb(C.orange)},0.14)`,
+      fill:true, tension:0.3, pointRadius:3, pointBackgroundColor:C.orange, borderWidth:2 }] },
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ display:false }, tooltip:{ callbacks:{ label:c => rs(c.parsed.y) + " per guest" } } },
+      scales:{ y:{ ...valueAxis(true, false, "Spend Per Guest (Rs.)"), beginAtZero:false }, x:categoryAxis(false, 20, "Hour Of The Day") } }
+  }, ch => { ch.data.datasets[0].data = vals; });
+  tblHourly.setData(hourly);
+}
+
+function renderItems(items){
+  const total = items.reduce((s,r) => s + r.value, 0);
+  items.forEach(r => r.share = total ? r.value/total*100 : 0);
+  document.getElementById("statItemsValue").textContent = rs(total);
+  document.getElementById("statItemsQty").textContent = num(items.reduce((s,r) => s + r.qty, 0));
+  document.getElementById("statItemsTop").textContent = items.length ? items[0].item : "—";
+  tblItems.setData(items);
+}
+
+function renderDiscounts(disc){
+  // A bill can have more than one discount line (one row per line item) -
+  // these two figures count BILLS, not lines, so a multi-line bill must only
+  // be counted once here (grouped by branch+bill+date, matching how a single
+  // bill's lines all share those three fields). A bill counts as "Fully
+  // Complimentary" only when every one of its lines was FOC; any line that
+  // wasn't makes the whole bill "Partly Discounted".
+  const billMap = new Map();
+  disc.forEach(r => {
+    const k = `${r.branch}|${r.bill}|${r.date}`;
+    billMap.set(k, billMap.has(k) ? billMap.get(k) && r.isFull : r.isFull);
+  });
+  const billFlags = [...billMap.values()];
+  document.getElementById("statDiscFull").textContent = num(billFlags.filter(Boolean).length);
+  document.getElementById("statDiscPartial").textContent = num(billFlags.filter(f => !f).length);
+  document.getElementById("statDiscValue").textContent = rs(disc.reduce((s,r) => s + r.discountValue, 0));
+  const t = discountTotals(disc), vals = DISCOUNT_REASONS.map(l => t[l]);
+  upsertChart("discountReasonChart", {
+    type:"bar",
+    data:{ labels:DISCOUNT_REASONS, datasets:[{ data:vals, backgroundColor:C.gold, borderRadius:3, maxBarThickness:24, barPercentage:0.72 }] },
+    options:{ indexAxis:"y", responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ display:false }, tooltip:rsTip },
+      scales:{ x:valueAxis(true, false, "Discount Offered (Rs.)"), y:nameAxis(false) } }
+  }, ch => { ch.data.datasets[0].data = vals; });
+  tblDiscounts.setData(disc);
+}
+
+function renderCancellations(cancel, sales){
+  const qty = cancel.reduce((s,r) => s + r.qty, 0), value = cancel.reduce((s,r) => s + r.value, 0);
+  document.getElementById("statCount").textContent = num(qty);
+  document.getElementById("statValue").textContent = rs(value);
+  document.getElementById("statCancelShare").textContent = sales ? (value/sales*100).toFixed(2) + "%" : "0%";
+  tblCancel.setData(cancel);   // also redraws the reason chart
+}
+
+function aggregateItems(rows){
+  const map = new Map();
+  rows.forEach(r => {
+    if (!map.has(r.item)) map.set(r.item, { category:r.category, item:r.item, qty:0, value:0 });
+    const a = map.get(r.item); a.qty += r.qty; a.value += r.value;
+  });
+  return [...map.values()].sort((a,b) => b.value - a.value);
+}
+
+/* This dish's own qty/rate/value broken into periods: consecutive dates
+   (within the currently selected scope) are grouped into one period for as
+   long as the dish's effective rate (that date's value / qty, summed across
+   both branches first so one bill split across outlets on the same day
+   doesn't look like two different rates) stays the same - a rate change
+   starts a new period. Rounded to match how rate is already rounded to 2dp
+   at parse time, so float noise doesn't fragment an unchanged rate into
+   spurious extra periods. */
+function itemRatePeriods(itemName){
+  const byDate = new Map();
+  inScope(SALES_DATA).filter(r => r.item === itemName).forEach(r => {
+    const k = r.date.getTime();
+    if (!byDate.has(k)) byDate.set(k, { date:r.date, qty:0, value:0 });
+    const d = byDate.get(k); d.qty += r.qty; d.value += r.value;
+  });
+  const days = [...byDate.values()].sort((a,b) => a.date - b.date)
+    .map(d => ({ ...d, rate: d.qty ? Math.round((d.value / d.qty) * 100) / 100 : 0 }));
+  const periods = [];
+  days.forEach(d => {
+    const last = periods[periods.length - 1];
+    if (last && last.rate === d.rate){
+      last.to = d.date; last.qty += d.qty; last.value += d.value;
+    } else {
+      periods.push({ from:d.date, to:d.date, rate:d.rate, qty:d.qty, value:d.value });
+    }
+  });
+  return periods;
+}
+
+const itemPeriodModalOverlay = document.getElementById("itemPeriodModalOverlay");
+function openItemPeriodModal(itemName){
+  document.getElementById("itemPeriodModalTitle").textContent = `Period-Wise Breakdown — ${itemName}`;
+  const periods = itemRatePeriods(itemName);
+  document.getElementById("itemPeriodBody").innerHTML = periods.length
+    ? periods.map(p => `<tr><td>${p.from.getTime() === p.to.getTime() ? fmtDate(p.from) : fmtDate(p.from) + " – " + fmtDate(p.to)}</td>` +
+        `<td class="r">${num(p.qty)}</td><td class="r">${rs(p.rate)}</td><td class="r">${rs(p.value)}</td></tr>`).join("")
+    : `<tr><td colspan="4" class="empty-cell">No sales for this dish in the current period.</td></tr>`;
+  itemPeriodModalOverlay.hidden = false;
+}
+function closeItemPeriodModal(){ itemPeriodModalOverlay.hidden = true; }
+document.getElementById("tblItems").addEventListener("click", e => {
+  const btn = e.target.closest(".item-period-btn");
+  if (btn) openItemPeriodModal(btn.dataset.item);
+});
+document.getElementById("itemPeriodModalClose").addEventListener("click", closeItemPeriodModal);
+itemPeriodModalOverlay.addEventListener("click", e => { if (e.target === itemPeriodModalOverlay) closeItemPeriodModal(); });
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && !itemPeriodModalOverlay.hidden) closeItemPeriodModal();
+});
+
+function renderAll(){
+  closePop();
+  document.getElementById("hdrOutlet").textContent = outletLabel();
+  hdrPeriod.textContent = periodLabel();
+  const editable = state.preset === "custom";
+  hdrPeriod.classList.toggle("editable", editable);
+  hdrPeriod.title = editable ? "Click to change the custom date range" : "";
+  if (editable){ hdrPeriod.setAttribute("role", "button"); hdrPeriod.tabIndex = 0; }
+  else { hdrPeriod.removeAttribute("role"); hdrPeriod.removeAttribute("tabindex"); }
+
+  const allBills = inScope(ALL_BILLS);
+  const hourly = inScope(HOURLY_DATA), disc = inScope(DISCOUNT_DATA), cancel = inScope(DATA);
+  const items = aggregateItems(inScope(SALES_DATA));
+  renderOverview(allBills, hourly, disc, cancel, items);
+  renderHourlySales(hourly);
+  renderHourlyCovers(hourly);
+  renderItems(items);
+  renderDiscounts(disc);
+  renderCancellations(cancel, hourly.reduce((t,r) => t + r.salesValue, 0));
+}
+
+/* =====================================================================
+   WIRING
+===================================================================== */
+const hdrPeriod = document.getElementById("hdrPeriod");
+function updateHeaderMeta(){
+  document.getElementById("dataAvailable").textContent = HAS_DATA_RANGE
+    ? groupMonthsLabel(ALL_BILLS.map(r => isoLocal(r.date).slice(0, 7)))
+    : "No data available";
+  document.getElementById("lastRefreshed").textContent = HAS_LAST_REFRESHED
+    ? fmtDateTime(LAST_REFRESHED)
+    : "—";
+}
+// called from startApp() once the API data has loaded, not here - nothing to show yet
+
+function activatePage(key){
+  closePop();
+  document.querySelectorAll(".tab-btn").forEach(b => {
+    const on = b.dataset.page === key;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-selected", on);
+    if (on) b.scrollIntoView({ block:"nearest", inline:"nearest" });
+  });
+  document.querySelectorAll(".page").forEach(p => p.classList.toggle("active", p.id === "page-" + key));
+  requestAnimationFrame(() => Object.values(charts).forEach(c => c.resize()));
+}
+document.getElementById("pageTabs").addEventListener("click", e => {
+  const b = e.target.closest(".tab-btn"); if (b){ activatePage(b.dataset.page); window.scrollTo({ top:0 }); }
+});
+document.querySelectorAll(".overview-card").forEach(card => {
+  const go = () => { activatePage(card.dataset.goto); window.scrollTo({ top:0 }); };
+  card.addEventListener("click", go);
+  card.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " "){ e.preventDefault(); go(); } });
+});
+
+document.getElementById("branchPills").addEventListener("click", e => {
+  const b = e.target.closest(".pill"); if (!b) return;
+  document.querySelectorAll("#branchPills .pill").forEach(p => { p.classList.remove("active"); p.setAttribute("aria-pressed","false"); });
+  b.classList.add("active"); b.setAttribute("aria-pressed","true");
+  state.branch = b.dataset.branch;
+  renderAll();
+});
+
+const datePreset = document.getElementById("datePreset");
+
+/* Custom date range is picked from a small floating popover (anchored to the
+   Period dropdown) instead of a permanent row in the header — so choosing
+   "Choose Dates" never adds an extra line to the layout. */
+
+/* ---- Holidays: works for ANY year, not just 2026 ----
+   Two kinds of holidays, handled differently because only one kind can
+   actually be predicted by a formula:
+
+   1. FIXED-RULE holidays - same month/day every year (national gazetted
+      holidays + international occasion days), plus a couple that ARE
+      computable from a date formula (Mother's/Father's Day = Nth Sunday of
+      a month; Good Friday = 2 days before the Gregorian Easter, via the
+      standard Anonymous Gregorian/Computus algorithm). These are generated
+      for a wide range of years automatically - no yearly maintenance needed,
+      ever.
+   2. STATE_HOLIDAYS_BY_YEAR - lunar-calendar and regional festivals (Pongal,
+      Ugadi, every Islamic date, Deepavali, etc.) that genuinely have NO
+      reliable formula - they're set by each state government's official
+      yearly notification (usually published a few months before that year
+      starts) or by regional moon-sighting for Islamic dates. 2026 is filled
+      in below. When a future state notification comes out, add that year's
+      key here the same way; until then, a year with no entry here simply
+      won't show these specific festivals (the fixed-rule ones above still
+      work regardless). */
+const FIXED_HOLIDAY_RULES = [
+  [1, 1, "New Year's Day"], [1, 26, "Republic Day"], [2, 14, "Valentine's Day"],
+  [4, 14, "Dr. B.R. Ambedkar Jayanthi"], [5, 1, "May Day"], [8, 15, "Independence Day"],
+  [10, 2, "Gandhi Jayanthi"], [12, 25, "Christmas"], [12, 31, "New Year's Eve"],
+];
+function computeEasterSunday(year){
+  // Anonymous Gregorian algorithm (Meeus/Jones/Butcher) - the standard
+  // formula for the Western/Gregorian Easter date, valid for any year.
+  const a = year % 19, b = Math.floor(year / 100), c = year % 100;
+  const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31), day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(year, month - 1, day);
+}
+function nthWeekdayOfMonth(year, month, weekday, n){
+  // month: 0-11, weekday: 0=Sun..6=Sat, n: 1st/2nd/3rd/...
+  const first = new Date(year, month, 1);
+  const offset = (weekday - first.getDay() + 7) % 7;
+  return new Date(year, month, 1 + offset + (n - 1) * 7);
+}
+function computedHolidaysForYear(year){
+  const out = FIXED_HOLIDAY_RULES.map(([m, d, name]) =>
+    [`${year}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`, name]);
+  const goodFriday = computeEasterSunday(year); goodFriday.setDate(goodFriday.getDate() - 2);
+  out.push([isoLocal(goodFriday), "Good Friday"]);
+  out.push([isoLocal(nthWeekdayOfMonth(year, 4, 0, 2)), "Mother's Day"]); // 2nd Sunday of May
+  out.push([isoLocal(nthWeekdayOfMonth(year, 5, 0, 3)), "Father's Day"]); // 3rd Sunday of June
+  return out;
+}
+
+const STATE_HOLIDAYS_BY_YEAR = {
+  2026: {
+    Chennai: [
+      ["2026-01-15","Pongal"], ["2026-01-16","Thiruvalluvar Day"], ["2026-01-17","Uzhavar Thirunal"],
+      ["2026-02-01","Thai Poosam"], ["2026-03-19","Telugu New Year's Day"], ["2026-03-21","Ramzan (Id-ul-Fitr)"],
+      ["2026-03-31","Mahaveer Jayanthi"], ["2026-04-14","Tamil New Year"],
+      ["2026-05-28","Bakrid (Id-ul-Zuha)"], ["2026-06-26","Muharram"],
+      ["2026-08-26","Milad-un-Nabi"], ["2026-09-04","Krishna Jayanthi (Janmashtami)"], ["2026-09-14","Vinayakar Chathurthi"],
+      ["2026-10-19","Ayutha Pooja"], ["2026-10-20","Vijaya Dashami"], ["2026-11-08","Deepavali"]
+    ],
+    Bengaluru: [
+      ["2026-01-15","Makara Sankranti"], ["2026-03-19","Ugadi"], ["2026-03-21","Id-ul-Fitr"],
+      ["2026-03-31","Mahaveera Jayanthi"], ["2026-04-20","Basava Jayanthi / Akshaya Tritiya"],
+      ["2026-05-28","Bakrid"], ["2026-06-26","Last Day Of Muharram"],
+      ["2026-08-26","Eid-Milad"], ["2026-09-14","Varasiddhi Vinayaka Vrata"],
+      ["2026-10-20","Mahanavami / Ayudha Pooja"], ["2026-10-21","Vijayadasami"],
+      ["2026-11-10","Deepavali (Balipadyami)"], ["2026-11-27","Kanakadasa Jayanthi"]
+    ]
+  }
+};
+
+const HOLIDAY_YEAR_RANGE = [2015, 2045]; // generously covers any realistic upload date
+const _holidayMapCache = {};
+/* Map<"YYYY-MM-DD", string[]> of holiday name(s) observed by the given branch
+   ("All" = union of both outlets' holidays). Cached per branch value since
+   there are only ever 3 possible inputs ("All"/"Chennai"/"Bengaluru") and
+   this can be called once per row when filtering thousands of bills. */
+function holidaysForBranch(branch){
+  if (_holidayMapCache[branch]) return _holidayMapCache[branch];
+  const map = new Map();
+  const addAll = list => list.forEach(([date, name]) => {
+    if (!map.has(date)) map.set(date, []);
+    if (!map.get(date).includes(name)) map.get(date).push(name);
+  });
+  for (let y = HOLIDAY_YEAR_RANGE[0]; y <= HOLIDAY_YEAR_RANGE[1]; y++){
+    addAll(computedHolidaysForYear(y));
+    const stateData = STATE_HOLIDAYS_BY_YEAR[y];
+    if (stateData){
+      if (branch === "Chennai" || branch === "All") addAll(stateData.Chennai || []);
+      if (branch === "Bengaluru" || branch === "All") addAll(stateData.Bengaluru || []);
+    }
+  }
+  _holidayMapCache[branch] = map;
+  return map;
+}
+
+/* ---- "View Holidays" popover: lists the exact date + name of every
+   government holiday behind "Public Holidays Only" (sourced from
+   HOLIDAYS_2026 above, official Tamil Nadu / Karnataka 2026 notifications),
+   for whichever outlet is currently selected. A small link is injected next
+   to every "Day Type" control (one per page) rather than duplicating it six
+   times in the markup. ---- */
+let holidayPop = null;
+function closeHolidayPop(){
+  if (holidayPop){ holidayPop.remove(); holidayPop = null; }
+}
+function openHolidayPop(anchorEl){
+  closeHolidayPop();
+  closePeriodPop(false);
+  const map = holidaysForBranch(state.branch);
+  const entries = [...map.entries()].sort(([a], [b]) => a < b ? -1 : 1);
+  const pop = document.createElement("div");
+  pop.className = "period-pop holiday-pop";
+  pop.setAttribute("role", "dialog");
+  pop.setAttribute("aria-label", "Public holidays");
+  pop.innerHTML = `
+    <div class="holiday-pop-title">Public Holidays 2026 — ${esc(outletLabel())}</div>
+    ${entries.length ? entries.map(([date, names]) => `
+      <div class="holiday-pop-row">
+        <span class="holiday-pop-date">${esc(fmtDateLong(new Date(date + "T00:00:00")))}</span>
+        <span class="holiday-pop-name">${esc(names.join(", "))}</span>
+      </div>`).join("") : `<div class="holiday-pop-empty">No holidays listed for this outlet.</div>`}`;
+  document.body.appendChild(pop);
+  const rect = anchorEl.getBoundingClientRect(), pw = pop.offsetWidth;
+  let left = Math.min(rect.left, window.innerWidth - pw - 8);
+  left = Math.max(8, left);
+  const top = Math.min(rect.bottom + 6, window.innerHeight - pop.offsetHeight - 8);
+  pop.style.left = left + "px";
+  pop.style.top = Math.max(8, top) + "px";
+  holidayPop = pop;
+}
+document.addEventListener("mousedown", e => {
+  if (holidayPop && !holidayPop.contains(e.target) && !e.target.closest(".view-holidays-btn")) closeHolidayPop();
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape" && holidayPop) closeHolidayPop(); });
+window.addEventListener("resize", closeHolidayPop);
+
+document.querySelectorAll(".day-type-select").forEach(sel => {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "view-holidays-btn";
+  btn.textContent = "View Holidays";
+  btn.title = "See the exact public holiday dates and names behind this filter";
+  btn.addEventListener("click", e => { e.stopPropagation(); openHolidayPop(btn); });
+  sel.insertAdjacentElement("afterend", btn);
+});
+
+let periodPop = null;
+function closePeriodPop(revertSelect){
+  if (!periodPop) return;
+  periodPop.el.remove();
+  periodPop = null;
+  if (revertSelect) datePreset.value = state.preset === "custom" ? "custom" : state.preset;
+}
+function openPeriodPop(){
+  closePeriodPop(false);
+  const pop = document.createElement("div");
+  pop.className = "period-pop";
+  pop.setAttribute("role", "dialog");
+  pop.setAttribute("aria-label", "Choose custom date range");
+  pop.innerHTML = `
+    <div class="cal-head">
+      <button type="button" class="cal-nav cal-prev" aria-label="Previous month">‹</button>
+      <span class="cal-title"></span>
+      <button type="button" class="cal-nav cal-next" aria-label="Next month">›</button>
+    </div>
+    <div class="cal-grid cal-body"></div>
+    <div class="cal-legend"><span class="dot"></span> Public holiday (${esc(outletLabel())})</div>
+    <div class="cal-range-label"></div>
+    <button class="apply-btn" id="applyCustom" disabled>Apply</button>`;
+  document.body.appendChild(pop);
+
+  const minDate = DATA_MIN_DATE || dayOffset(DAYS_OF_DATA), maxDate = DATA_MAX_DATE || TODAY;
+  const minKey = isoLocal(minDate), maxKey = isoLocal(maxDate);
+  const holidayMap = holidaysForBranch(state.branch);
+  let calFrom = state.customFrom ? new Date(state.customFrom) : null;
+  let calTo = state.customTo ? new Date(state.customTo) : null;
+  const anchor = calFrom || maxDate;
+  let viewYear = anchor.getFullYear(), viewMonth = anchor.getMonth();
+
+  const gridEl = pop.querySelector(".cal-body");
+  const titleEl = pop.querySelector(".cal-title");
+  const prevBtn = pop.querySelector(".cal-prev");
+  const nextBtn = pop.querySelector(".cal-next");
+  const rangeLabel = pop.querySelector(".cal-range-label");
+  const applyBtn = pop.querySelector("#applyCustom");
+
+  function refreshApplyState(){
+    if (calFrom && calTo){ rangeLabel.textContent = `${fmtDateLong(calFrom)} to ${fmtDateLong(calTo)}`; applyBtn.disabled = false; }
+    else if (calFrom){ rangeLabel.textContent = `${fmtDateLong(calFrom)} — pick an end date`; applyBtn.disabled = true; }
+    else { rangeLabel.textContent = "Pick a start date"; applyBtn.disabled = true; }
+  }
+  function draw(){
+    titleEl.textContent = `${MONTHS[viewMonth]} ${viewYear}`;
+    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+    const startDow = new Date(viewYear, viewMonth, 1).getDay();
+    const fromKey = calFrom ? isoLocal(calFrom) : null;
+    const toKey = calTo ? isoLocal(calTo) : null;
+    let html = DAY_NAMES.map(d => `<span class="cal-dow">${d}</span>`).join("");
+    for (let i = 0; i < startDow; i++) html += `<span class="cal-day empty"></span>`;
+    for (let d = 1; d <= daysInMonth; d++){
+      const key = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      const disabled = key < minKey || key > maxKey;
+      const names = holidayMap.get(key);
+      let cls = "cal-day";
+      if (names) cls += " holiday";
+      if (fromKey && toKey && key > fromKey && key < toKey) cls += " in-range";
+      if (key === fromKey) cls += " range-start";
+      if (key === toKey) cls += " range-end";
+      const titleAttr = names ? ` title="${esc(names.join(", "))}"` : "";
+      html += `<button type="button" class="${cls}" data-date="${key}" ${disabled ? "disabled" : ""}${titleAttr}>${d}</button>`;
+    }
+    gridEl.innerHTML = html;
+    const prevMonthLastDay = isoLocal(new Date(viewYear, viewMonth, 0));
+    const nextMonthFirstDay = isoLocal(new Date(viewYear, viewMonth + 1, 1));
+    prevBtn.disabled = prevMonthLastDay < minKey;
+    nextBtn.disabled = nextMonthFirstDay > maxKey;
+    gridEl.querySelectorAll(".cal-day:not(.empty)").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const key = btn.dataset.date;
+        if (!calFrom || calTo){ calFrom = new Date(key + "T00:00:00"); calTo = null; }
+        else if (key < isoLocal(calFrom)){ calFrom = new Date(key + "T00:00:00"); calTo = null; }
+        else { calTo = new Date(key + "T00:00:00"); }
+        refreshApplyState();
+        draw();
+      });
+    });
+    refreshApplyState();
+  }
+  draw();
+  prevBtn.addEventListener("click", () => { viewMonth--; if (viewMonth < 0){ viewMonth = 11; viewYear--; } draw(); });
+  nextBtn.addEventListener("click", () => { viewMonth++; if (viewMonth > 11){ viewMonth = 0; viewYear++; } draw(); });
+
+  const rect = datePreset.getBoundingClientRect(), pw = pop.offsetWidth;
+  let left = Math.min(rect.left, window.innerWidth - pw - 8);
+  left = Math.max(8, left);
+  const top = Math.min(rect.bottom + 6, window.innerHeight - pop.offsetHeight - 8);
+  pop.style.left = left + "px";
+  pop.style.top = Math.max(8, top) + "px";
+
+  periodPop = { el: pop };
+
+  applyBtn.addEventListener("click", () => {
+    if (!calFrom || !calTo) return;
+    state.customFrom = new Date(calFrom); state.customFrom.setHours(0, 0, 0, 0);
+    state.customTo = new Date(calTo); state.customTo.setHours(23, 59, 59, 999);
+    state.preset = "custom";
+    closePeriodPop(false);
+    renderAll();
+  });
+}
+document.addEventListener("mousedown", e => {
+  if (periodPop && !periodPop.el.contains(e.target) && e.target !== datePreset) closePeriodPop(true);
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape" && periodPop) closePeriodPop(true); });
+window.addEventListener("resize", () => closePeriodPop(false));
+document.addEventListener("scroll", e => { if (periodPop && !periodPop.el.contains(e.target)) closePeriodPop(false); }, true);
+
+datePreset.addEventListener("change", () => {
+  if (datePreset.value === "custom") openPeriodPop();
+  else { closePeriodPop(false); state.preset = datePreset.value; renderAll(); }
+});
+/* one Day Type control per page (not a single global one) - all kept in sync
+   with the same state.dayType, since it's one shared filter under the hood. */
+const dayTypeSelects = document.querySelectorAll(".day-type-select");
+dayTypeSelects.forEach(sel => sel.addEventListener("change", e => {
+  state.dayType = e.target.value;
+  dayTypeSelects.forEach(s => { s.value = state.dayType; });
+  renderAll();
+}));
+/* clicking the period line in the header re-opens the popover to edit an already-applied custom range */
+hdrPeriod.addEventListener("click", () => { if (state.preset === "custom") openPeriodPop(); });
+hdrPeriod.addEventListener("keydown", e => {
+  if (state.preset === "custom" && (e.key === "Enter" || e.key === " ")){ e.preventDefault(); openPeriodPop(); }
+});
+document.getElementById("clearReason").addEventListener("click", () => tblCancel.clearFilter("reason"));
+
+/* Download Report: the browser's own print dialog, saved as PDF — no library, no
+   server, no account needed. Only the currently visible tab/period/outlet is
+   exported, since printing naturally follows what's on screen (.page.active). */
+document.getElementById("downloadReportBtn").addEventListener("click", () => window.print());
+
+/* =====================================================================
+   DOWNLOAD EXCEL — a minimal, dependency-free .xlsx writer.
+   Builds a real multi-sheet OOXML workbook (ZIP, stored uncompressed) by
+   hand — no library, no server, no CDN — so it works the same offline,
+   opened straight off disk, as everything else in this file.
+===================================================================== */
+const XLSX_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++){
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(bytes){
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+function u16(n){ return [n & 0xff, (n >>> 8) & 0xff]; }
+function u32(n){ return [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff]; }
+function concatBytes(chunks){
+  const total = chunks.reduce((s, c) => s + c.length, 0);
+  const out = new Uint8Array(total);
+  let off = 0;
+  chunks.forEach(c => { out.set(c, off); off += c.length; });
+  return out;
+}
+const textEnc = new TextEncoder();
+
+/* store-only ZIP (no compression needed/available without a library) */
+function buildZip(files){
+  const localChunks = [], centralChunks = [];
+  let offset = 0;
+  const DOS_TIME = 0, DOS_DATE = 0x21;
+  files.forEach(f => {
+    const nameBytes = textEnc.encode(f.name);
+    const data = f.data;
+    const crc = crc32(data), size = data.length;
+    const local = new Uint8Array([].concat(
+      u32(0x04034b50), u16(20), u16(0), u16(0), u16(DOS_TIME), u16(DOS_DATE),
+      u32(crc), u32(size), u32(size), u16(nameBytes.length), u16(0), Array.from(nameBytes)
+    ));
+    localChunks.push(local, data);
+    const central = new Uint8Array([].concat(
+      u32(0x02014b50), u16(20), u16(20), u16(0), u16(0), u16(DOS_TIME), u16(DOS_DATE),
+      u32(crc), u32(size), u32(size), u16(nameBytes.length), u16(0), u16(0), u16(0), u16(0),
+      u32(0), u32(offset), Array.from(nameBytes)
+    ));
+    centralChunks.push(central);
+    offset += local.length + data.length;
+  });
+  const centralBuf = concatBytes(centralChunks);
+  const localBuf = concatBytes(localChunks);
+  const eocd = new Uint8Array([].concat(
+    u32(0x06054b50), u16(0), u16(0), u16(files.length), u16(files.length),
+    u32(centralBuf.length), u32(localBuf.length), u16(0)
+  ));
+  return concatBytes([localBuf, centralBuf, eocd]);
+}
+
+function xesc(s){
+  return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&apos;" }[c]));
+}
+function colLetter(n){
+  let s = "";
+  while (n > 0){ const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); }
+  return s;
+}
+function safeSheetName(name, used){
+  let n = String(name).replace(/[\\/?*[\]:]/g, " ").slice(0, 31).trim() || "Sheet";
+  let base = n, i = 2;
+  while (used.has(n)){ n = (base.slice(0, 28) + " " + i).slice(0, 31); i++; }
+  used.add(n);
+  return n;
+}
+function sheetXml(rows, boldRows){
+  boldRows = boldRows || new Set();
+  const rowXml = rows.map((row, ri) => {
+    const r = ri + 1;
+    const cells = row.map((val, ci) => {
+      if (val === null || val === undefined || val === "") return "";
+      const ref = colLetter(ci + 1) + r;
+      const s = boldRows.has(ri) ? ' s="1"' : "";
+      if (typeof val === "number" && isFinite(val)) return `<c r="${ref}"${s}><v>${val}</v></c>`;
+      return `<c r="${ref}"${s} t="inlineStr"><is><t xml:space="preserve">${xesc(val)}</t></is></c>`;
+    }).join("");
+    return `<row r="${r}">${cells}</row>`;
+  }).join("");
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="${XLSX_NS}"><sheetData>${rowXml}</sheetData></worksheet>`;
+}
+function buildXlsxBytes(sheets){
+  const used = new Set();
+  const names = sheets.map(s => safeSheetName(s.name, used));
+  const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n` +
+    `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
+    `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
+    `<Default Extension="xml" ContentType="application/xml"/>` +
+    `<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>` +
+    `<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>` +
+    sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("") +
+    `</Types>`;
+  const rootRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n` +
+    `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+    `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>` +
+    `</Relationships>`;
+  const workbookXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n` +
+    `<workbook xmlns="${XLSX_NS}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">` +
+    `<sheets>` + names.map((n, i) => `<sheet name="${xesc(n)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("") + `</sheets>` +
+    `</workbook>`;
+  const stylesRid = sheets.length + 1;
+  const workbookRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n` +
+    `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+    sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join("") +
+    `<Relationship Id="rId${stylesRid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>` +
+    `</Relationships>`;
+  const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n` +
+    `<styleSheet xmlns="${XLSX_NS}">` +
+    `<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>` +
+    `<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>` +
+    `<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>` +
+    `<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>` +
+    `<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs>` +
+    `<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>` +
+    `</styleSheet>`;
+  const files = [
+    { name:"[Content_Types].xml", data: textEnc.encode(contentTypes) },
+    { name:"_rels/.rels", data: textEnc.encode(rootRels) },
+    { name:"xl/workbook.xml", data: textEnc.encode(workbookXml) },
+    { name:"xl/_rels/workbook.xml.rels", data: textEnc.encode(workbookRels) },
+    { name:"xl/styles.xml", data: textEnc.encode(stylesXml) }
+  ];
+  sheets.forEach((s, i) => files.push({ name:`xl/worksheets/sheet${i + 1}.xml`, data: textEnc.encode(sheetXml(s.rows, s.boldRows)) }));
+  return buildZip(files);
+}
+function downloadXlsx(sheets, filename){
+  const bytes = buildXlsxBytes(sheets);
+  const blob = new Blob([bytes], { type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/* per-column value for export: raw number for measures, display text otherwise
+   (dates get the full "D Mon YYYY" form since the on-screen "01 Jul" drops the year) */
+function xlsxCellValue(c, r){
+  if (c.key === "date") return fmtDateLong(r.date);
+  if (c.key === "hour" || c.key === "share") return c.text(r);
+  if (c.type === "num") return c.sort ? c.sort(r) : (Number(String(c.text(r)).replace(/[^0-9.-]/g, "")) || 0);
+  return c.text(r);
+}
+function tableToSheet(t, name){
+  const header = t.columns.map(c => c.label);
+  const rows = t.rows().map(r => t.columns.map(c => xlsxCellValue(c, r)));
+  return { name: name || t.sheetName, rows: [header, ...rows], boldRows: new Set([0]) };
+}
+/* per-table "Download Excel" link in each table's footer — exports exactly the rows
+   currently shown (respecting that table's own sort/filters and the active period/outlet)
+   as a single-sheet workbook, without waiting for the full multi-sheet report. */
+function exportSingleTable(t){
+  const stamp = new Date().toISOString().slice(0, 10);
+  downloadXlsx([tableToSheet(t)], `KCK ${t.sheetName} - ${periodLabel()} - ${stamp}.xlsx`);
+}
+/* Raw, unfiltered copies of the full dataset (NOT inScope() - the current
+   period/outlet/day-type filter must never silently drop data from a file meant
+   to be re-uploaded later) with plain, stable column headers. This is what makes
+   the "Excel" export round-trippable: edit the values in these 4 sheets and drop
+   the file back into "Input" to load it straight back in, no Posist files needed. */
+function rawDataSheets(){
+  const h = new Set([0]);
+  return [
+    { name:"Raw - All Bills", boldRows:h, rows:[
+      ["Date","Hour","Outlet","Bill No.","Guests","Bill Amount","Service Type"],
+      ...ALL_BILLS.map(r => [isoLocal(r.date), r.hour, r.branch, r.bill, r.covers, r.salesValue, r.serviceType])
+    ]},
+    { name:"Raw - Dish Sales", boldRows:h, rows:[
+      ["Date","Outlet","Menu Section","Dish Name","Portions Sold","Menu Price","Sales Value"],
+      ...SALES_DATA.map(r => [isoLocal(r.date), r.branch, r.category, r.item, r.qty, r.rate, r.value])
+    ]},
+    { name:"Raw - Discounts", boldRows:h, rows:[
+      ["Date","Outlet","Bill No.","Bill Amount","Discount Value","Amount After Discount","Fully Complimentary","Discount Type","Remarks"],
+      ...DISCOUNT_DATA.map(r => [isoLocal(r.date), r.branch, r.bill, r.itemValue, r.discountValue, r.net, r.isFull ? "Yes" : "No", r.type, r.remarks])
+    ]},
+    { name:"Raw - Cancelled KOTs", boldRows:h, rows:[
+      ["Date","Outlet","Bill No.","Dish Name","Quantity","Price Per Item","Total Value","Reason"],
+      ...DATA.map(r => [isoLocal(r.date), r.branch, r.bill, r.item, r.qty, r.rate, r.value, r.reason])
+    ]}
+  ];
+}
+function buildReportWorkbook(){
+  const allBills = inScope(ALL_BILLS);
+  const hourly = inScope(HOURLY_DATA), disc = inScope(DISCOUNT_DATA), cancel = inScope(DATA);
+  const sales = allBills.reduce((s, r) => s + r.salesValue, 0);
+  const st = serviceTypeTotals(allBills);
+
+  const overviewRows = [
+    ["Kappa Chakka Kandhari — Sales Dashboard"],
+    ["Period", periodLabel()],
+    ["Outlet", outletLabel()],
+    ["Data Available", document.getElementById("dataAvailable").textContent],
+    ["Last Refreshed", document.getElementById("lastRefreshed").textContent],
+    [],
+    ["Sales", sales],
+    ["Discounts Offered", disc.reduce((s, r) => s + r.discountValue, 0)],
+    ["Items/KOT's Cancelled", cancel.reduce((s, r) => s + r.qty, 0)],
+    ["Value Of Cancelled Items/KOT's", cancel.reduce((s, r) => s + r.value, 0)],
+    [],
+    ["Sales By Service Type"],
+    ["Service Type", "Sales (Rs.)", "Share Of Sales"]
+  ];
+  SERVICE_TYPES.forEach(s => overviewRows.push([displayServiceType(s), Math.round(st[s]), sales ? (st[s] / sales * 100).toFixed(1) + "%" : "0.0%"]));
+
+  return [
+    { name:"Overview", rows: overviewRows, boldRows: new Set([0, 11, 12]) },
+    ...rawDataSheets(),
+    tableToSheet(tblHourlySales),
+    tableToSheet(tblHourly),
+    tableToSheet(tblItems),
+    tableToSheet(tblDiscounts),
+    tableToSheet(tblCancel)
+  ];
+}
+document.getElementById("downloadExcelBtn").addEventListener("click", () => {
+  const stamp = new Date().toISOString().slice(0, 10);
+  downloadXlsx(buildReportWorkbook(), `KCK Sales Dashboard - ${periodLabel()} - ${stamp}.xlsx`);
+});
+
+
+/* ---- hot-swap the active dataset and re-render everything from it ---- */
+let ACTIVE_RAW_DATA = null; // set once loadDashboardData() resolves in startApp()
+function applyDataset(raw){
+  ACTIVE_RAW_DATA = raw;
+  applyDashboardData(raw);
+  updateHeaderMeta();
+  [tblCancel, tblItems, tblDiscounts, tblHourly, tblHourlySales].forEach(t => { t.filters = {}; });
+  state.branch = "All"; state.preset = "month"; state.customFrom = null; state.customTo = null; state.dayType = "all";
+  document.querySelectorAll("#branchPills .pill").forEach(p => {
+    const on = p.dataset.branch === "All";
+    p.classList.toggle("active", on); p.setAttribute("aria-pressed", on);
+  });
+  document.getElementById("datePreset").value = "month";
+  document.querySelectorAll(".day-type-select").forEach(s => { s.value = "all"; });
+  renderAll();
+}
+
+/* ---- Input UI: uploads the raw "Posist Report" folder to the backend
+   (POST /api/upload), which parses it with the same
+   logic as build_dashboard_data.py and upserts bills/sales/discounts into
+   its JSON store - then this refetches everything so the dashboard (and
+   every other viewer hitting the same backend) reflects it immediately. ---- */
+const inputModalOverlay = document.getElementById("inputModalOverlay");
+const inputStatus = document.getElementById("inputStatus");
+const inputPreview = document.getElementById("inputPreview");
+const inputActions = document.getElementById("inputActions");
+const dropZone = document.getElementById("dropZone");
+const folderInput = document.getElementById("folderInput");
+const zipInput = document.getElementById("zipInput");
+const jsonInput = document.getElementById("jsonInput");
+const uploadBtn = document.getElementById("uploadBtn");
+const clearFilesBtn = document.getElementById("clearFilesBtn");
+const viewDashboardBtn = document.getElementById("viewDashboardBtn");
+let selectedEntries = []; // [{file, relativePath}]
+// A pre-parsed JSON file prepared locally (pre-parsed) -
+// mutually exclusive with selectedEntries: picking one clears the other,
+// since they go to two different endpoints (see uploadBtn's handler).
+let selectedJsonFile = null;
+let lastUploadMonths = null; // ["YYYY-MM", ...] touched by the most recent successful upload
+
+/* drag-and-drop can hand us a mix of loose files and whole folders; walk any
+   dropped directory entries recursively so dropping the Posist Report folder
+   works the same as the <input webkitdirectory> picker. */
+function readAllDirEntries(dirReader){
+  return new Promise((resolve, reject) => {
+    const all = [];
+    const readBatch = () => dirReader.readEntries(entries => {
+      if (!entries.length){ resolve(all); return; }
+      all.push(...entries);
+      readBatch();
+    }, reject);
+    readBatch();
+  });
+}
+async function walkFileEntry(entry, pathPrefix, out){
+  if (entry.isFile){
+    const file = await new Promise((res, rej) => entry.file(res, rej));
+    out.push({ file, relativePath: pathPrefix + entry.name });
+  } else if (entry.isDirectory){
+    const entries = await readAllDirEntries(entry.createReader());
+    for (const child of entries) await walkFileEntry(child, pathPrefix + entry.name + "/", out);
+  }
+}
+async function getEntriesFromDataTransfer(dataTransfer){
+  const items = Array.from(dataTransfer.items || []);
+  const out = [];
+  const tasks = [];
+  for (const item of items){
+    if (item.kind !== "file") continue;
+    const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+    if (entry) tasks.push(walkFileEntry(entry, "", out));
+    else { const f = item.getAsFile(); if (f) out.push({ file:f, relativePath:f.name }); }
+  }
+  await Promise.all(tasks);
+  return out;
+}
+
+function selectJsonFile(file){
+  selectedEntries = [];
+  selectedJsonFile = file;
+  lastUploadMonths = null;
+  showUploadControls();
+  inputStatus.textContent = `Pre-parsed file selected: ${file.name} (${(file.size/1024).toFixed(0)} KB).`;
+  inputActions.hidden = false;
+  uploadBtn.disabled = false;
+}
+
+function addSelectedEntries(rawEntries){
+  const usable = rawEntries.filter(e => /\.(xlsx|zip)$/i.test(e.file.name));
+  selectedJsonFile = null;
+  selectedEntries = selectedEntries.concat(usable);
+  // picking new files always means "about to upload again" - reset out of
+  // whatever "just finished uploading" button state a prior upload left
+  // behind in this same modal session (Clear/Upload back, View hidden).
+  lastUploadMonths = null;
+  showUploadControls();
+  const skipped = rawEntries.length - usable.length;
+  const zipCount = selectedEntries.filter(e => /\.zip$/i.test(e.file.name)).length;
+  const xlsxCount = selectedEntries.length - zipCount;
+  const parts = [];
+  if (zipCount) parts.push(`${num(zipCount)} .zip file${zipCount === 1 ? "" : "s"}`);
+  if (xlsxCount) parts.push(`${num(xlsxCount)} .xlsx file${xlsxCount === 1 ? "" : "s"}`);
+  inputStatus.textContent = (parts.length ? parts.join(" and ") + " selected" : "Nothing selected") +
+    (skipped ? ` (${num(skipped)} other file${skipped === 1 ? "" : "s"} ignored)` : "") + ".";
+  inputActions.hidden = !selectedEntries.length;
+  uploadBtn.disabled = !selectedEntries.length;
+}
+function showUploadControls(){
+  clearFilesBtn.hidden = false;
+  uploadBtn.hidden = false;
+  viewDashboardBtn.hidden = true;
+}
+function clearSelection(){
+  selectedEntries = [];
+  selectedJsonFile = null;
+  lastUploadMonths = null;
+  inputStatus.textContent = "Nothing selected.";
+  inputPreview.hidden = true;
+  inputActions.hidden = true;
+  showUploadControls();
+}
+
+function closeInputModal(){
+  inputModalOverlay.hidden = true;
+  clearSelection();
+  folderInput.value = "";
+  zipInput.value = "";
+  jsonInput.value = "";
+  dropZone.classList.remove("drag-over");
+}
+/* A full page reload (not just re-fetching data) so a tab left open from
+   before a deploy also picks up any newer JS/HTML that shipped since it
+   was opened - re-fetching data alone wouldn't fix that, only this does. */
+document.getElementById("refreshPageBtn").addEventListener("click", e => {
+  e.currentTarget.classList.add("spinning");
+  location.reload();
+});
+
+document.getElementById("openInputBtn").addEventListener("click", () => { inputModalOverlay.hidden = false; });
+document.getElementById("inputModalClose").addEventListener("click", closeInputModal);
+document.getElementById("clearFilesBtn").addEventListener("click", clearSelection);
+inputModalOverlay.addEventListener("click", e => { if (e.target === inputModalOverlay) closeInputModal(); });
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && !inputModalOverlay.hidden) closeInputModal();
+});
+
+document.getElementById("chooseFolderBtn").addEventListener("click", e => { e.stopPropagation(); folderInput.click(); });
+document.getElementById("chooseZipBtn").addEventListener("click", e => { e.stopPropagation(); zipInput.click(); });
+dropZone.addEventListener("click", () => folderInput.click());
+dropZone.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " "){ e.preventDefault(); folderInput.click(); } });
+folderInput.addEventListener("change", () => {
+  addSelectedEntries(Array.from(folderInput.files).map(f => ({ file:f, relativePath:f.webkitRelativePath || f.name })));
+  folderInput.value = "";
+});
+zipInput.addEventListener("change", () => {
+  addSelectedEntries(Array.from(zipInput.files).map(f => ({ file:f, relativePath:f.name })));
+  zipInput.value = "";
+});
+document.getElementById("chooseJsonBtn").addEventListener("click", e => { e.stopPropagation(); jsonInput.click(); });
+jsonInput.addEventListener("change", () => {
+  if (jsonInput.files[0]) selectJsonFile(jsonInput.files[0]);
+  jsonInput.value = "";
+});
+["dragenter", "dragover"].forEach(evt => dropZone.addEventListener(evt, e => { e.preventDefault(); dropZone.classList.add("drag-over"); }));
+["dragleave", "dragend"].forEach(evt => dropZone.addEventListener(evt, e => { e.preventDefault(); dropZone.classList.remove("drag-over"); }));
+dropZone.addEventListener("drop", async e => {
+  e.preventDefault();
+  dropZone.classList.remove("drag-over");
+  const dropped = Array.from(e.dataTransfer.files || []);
+  if (dropped.length === 1 && /\.json$/i.test(dropped[0].name)){
+    selectJsonFile(dropped[0]);
+    return;
+  }
+  inputStatus.textContent = "Reading dropped items…";
+  addSelectedEntries(await getEntriesFromDataTransfer(e.dataTransfer));
+});
+
+/* A free-tier/serverless backend (Render app + Neon DB) that's been idle can
+   take 30-60s+ to wake up on the very first request after a while - long
+   enough that the platform's own gateway sometimes kills the request and
+   returns an HTML error page instead of ever reaching our app, which shows
+   up here as a non-JSON response (or the fetch itself failing outright).
+   Retrying a couple of times with a short delay absorbs that wake-up
+   window instead of failing the upload over it. A real 4xx from the server
+   (bad zip, missing files, etc.) is NOT retried - retrying wouldn't fix it. */
+async function attemptUpload(form){
+  let res;
+  try {
+    res = await fetch("/api/upload", { method:"POST", body:form });
+  } catch (networkErr){
+    networkErr.transient = true;
+    throw networkErr;
+  }
+  let body;
+  try { body = await res.json(); }
+  catch {
+    const err = new Error(`Server returned ${res.status} with a non-JSON response - it may still be waking up`);
+    err.transient = true;
+    throw err;
+  }
+  if (!res.ok){
+    const err = new Error(body.detail || `Server returned ${res.status}`);
+    err.transient = res.status >= 500;
+    throw err;
+  }
+  return body;
+}
+
+/* Same retry-on-transient-failure contract as attemptUpload(), but for a
+   pre-parsed JSON file prepared locally - see
+   /api/upload-json. Sends the
+   file's own JSON text straight through as the request body. */
+async function attemptUploadJson(jsonFile){
+  const text = await jsonFile.text();
+  let res;
+  try {
+    res = await fetch("/api/upload-json", {
+      method: "POST",
+      body: text,
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (networkErr){
+    networkErr.transient = true;
+    throw networkErr;
+  }
+  let body;
+  try { body = await res.json(); }
+  catch {
+    const err = new Error(`Server returned ${res.status} with a non-JSON response - it may still be waking up`);
+    err.transient = true;
+    throw err;
+  }
+  if (!res.ok){
+    const err = new Error(body.detail || `Server returned ${res.status}`);
+    err.transient = res.status >= 500;
+    throw err;
+  }
+  return body;
+}
+
+uploadBtn.addEventListener("click", async () => {
+  if (!selectedEntries.length && !selectedJsonFile) return;
+  uploadBtn.disabled = true;
+  inputPreview.hidden = true;
+  const usingJson = !!selectedJsonFile;
+  const form = usingJson ? null : new FormData();
+  if (form) selectedEntries.forEach(e => form.append("files", e.file, e.relativePath));
+  // 6 attempts x 6s between them (~30s of retry buffer, on top of each
+  // attempt's own time) - seen in practice needing more than the original
+  // 3 attempts x 4s covered, since a cold Render instance plus a cold
+  // Postgres waking up together can take longer than that to settle.
+  const MAX_ATTEMPTS = 6;
+  try {
+    let body;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++){
+      inputStatus.textContent = attempt === 1
+        ? "Uploading…"
+        : `Server seems to be waking up - retrying (${attempt}/${MAX_ATTEMPTS})…`;
+      try {
+        body = usingJson ? await attemptUploadJson(selectedJsonFile) : await attemptUpload(form);
+        break;
+      } catch (err){
+        if (!err.transient || attempt === MAX_ATTEMPTS) throw err;
+        await new Promise(r => setTimeout(r, 6000));
+      }
+    }
+    const fmt = (label, r) => `<div><b>${esc(label)}:</b> ${Object.entries(r).map(([m, c]) => `${m} replaced with ${num(c.added)} row${c.added === 1 ? "" : "s"}`).join(", ") || "no rows"}</div>`;
+    const missingNote = (body.missing || []).length
+      ? `<div class="gate-error" style="margin-top:8px;">Not found in this upload (marked as no data available): ${esc(body.missing.join(", "))}</div>`
+      : "";
+    inputPreview.hidden = false;
+    inputPreview.innerHTML = fmt("Bills", body.bills) + fmt("Dish sales", body.sales) + fmt("Discounts", body.discounts) + missingNote;
+    // The upload itself (the DB write above) has already succeeded at this
+    // point - a failure past here is only the dashboard re-fetching its own
+    // now-larger dataset, so it gets its own status message rather than
+    // being reported as "Upload failed" (misleading - nothing needs re-
+    // uploading, just a page reload once the backend catches up).
+    selectedEntries = [];
+    selectedJsonFile = null;
+    lastUploadMonths = [...new Set([...Object.keys(body.bills), ...Object.keys(body.sales), ...Object.keys(body.discounts)])].sort();
+    clearFilesBtn.hidden = true;
+    uploadBtn.hidden = true;
+    viewDashboardBtn.hidden = !lastUploadMonths.length;
+    refreshUploadHistory();
+    try {
+      inputStatus.textContent = "Uploaded — refreshing the dashboard…";
+      applyDataset(await loadDashboardData());
+      inputStatus.textContent = "Done. The dashboard now reflects this upload.";
+    } catch (err){
+      console.error("Post-upload dashboard refresh failed", err);
+      inputStatus.textContent = "Uploaded successfully, but refreshing the view failed (" + err.message + "). Reload the page to see it.";
+    }
+  } catch (err){
+    console.error("Upload failed", err);
+    inputStatus.textContent = "Upload failed: " + err.message;
+  } finally {
+    uploadBtn.disabled = selectedEntries.length === 0 && !selectedJsonFile;
+  }
+});
+
+/* Jumps straight to a custom period spanning exactly the given month(s)
+   ("YYYY-MM" strings) - used both by "View in Dashboard" right after an
+   upload, and by each History row's "View" link, so re-checking an old
+   upload never requires re-uploading it. */
+function viewMonthsInDashboard(months){
+  if (!months || !months.length) return;
+  const sorted = [...months].sort();
+  const [fy, fm] = sorted[0].split("-").map(Number);
+  const [ly, lm] = sorted[sorted.length - 1].split("-").map(Number);
+  const from = new Date(fy, fm - 1, 1, 0, 0, 0, 0);
+  const to = new Date(ly, lm, 0, 23, 59, 59, 999); // day 0 of next month = last day of lm
+  state.preset = "custom";
+  state.customFrom = from;
+  state.customTo = to;
+  datePreset.value = "custom";
+  // "Data Available" should describe whatever upload's data is now actually
+  // on screen, same as the period line above it - otherwise jumping to an
+  // older upload via History leaves the two disagreeing with each other.
+  // Grouped the same gap-aware way as the default view, since one upload's
+  // own `months` list can itself be non-contiguous (e.g. Jan + Mar, no Feb).
+  document.getElementById("dataAvailable").textContent = groupMonthsLabel(months);
+  closeInputModal();
+  closeHistoryModal();
+  renderAll();
+}
+
+viewDashboardBtn.addEventListener("click", () => viewMonthsInDashboard(lastUploadMonths));
+
+/* ---- Upload History: lists every past /api/upload call (GET /api/upload-
+   history) - when it happened, which files were sent,
+   which months it replaced, and how many rows landed in each dataset. ---- */
+const historyModalOverlay = document.getElementById("historyModalOverlay");
+const historyList = document.getElementById("historyList");
+
+function closeHistoryModal(){ historyModalOverlay.hidden = true; }
+
+async function refreshUploadHistory(){
+  historyList.innerHTML = `<p class="input-status">Loading…</p>`;
+  try {
+    const res = await fetch("/api/upload-history", {});
+    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    const entries = await res.json();
+    if (!entries.length){
+      historyList.innerHTML = `<p class="input-status">No uploads yet.</p>`;
+      return;
+    }
+    const rowsFor = (r) => Object.entries(r || {}).map(([m, c]) => `${m}: ${num(c.added)}`).join(", ") || "—";
+    const th = label => `<th><div class="th-in"><span class="th-label">${esc(label)}</span></div></th>`;
+    const rowsHtml = entries.map((e, i) => `
+      <tr>
+        <td class="soft">${esc(fmtDateTime(new Date(e.timestamp)))}</td>
+        <td class="wrap">${esc((e.months || []).join(", ") || "—")}</td>
+        <td class="wrap">${esc((e.files || []).join(", ") || "—")}</td>
+        <td class="wrap">${esc(rowsFor(e.bills))}</td>
+        <td class="wrap">${esc(rowsFor(e.sales))}</td>
+        <td class="wrap">${esc(rowsFor(e.discounts))}</td>
+        <td class="wrap">${esc(rowsFor(e.cancellations))}</td>
+        <td class="wrap soft">${esc((e.missing || []).join(", ") || "—")}</td>
+        <td class="history-actions">${(e.months || []).length ? `
+          <button class="action-btn ghost history-view-btn" type="button" data-idx="${i}">View</button>
+          <button class="action-btn danger history-delete-btn" type="button" data-idx="${i}">Delete</button>` : "—"}</td>
+      </tr>`).join("");
+    historyList.innerHTML = `
+      <table class="data history-table">
+        <thead><tr>${th("Uploaded At")}${th("Month(s)")}${th("Files")}${th("Bills")}${th("Dish Sales")}${th("Discounts")}${th("Cancelled KOTs")}${th("Not Available")}${th("")}</tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>`;
+    historyList.querySelectorAll(".history-view-btn").forEach(btn => {
+      btn.addEventListener("click", () => viewMonthsInDashboard(entries[Number(btn.dataset.idx)].months));
+    });
+    historyList.querySelectorAll(".history-delete-btn").forEach(btn => {
+      btn.addEventListener("click", () => openDeleteMonthConfirm(entries[Number(btn.dataset.idx)].months || []));
+    });
+  } catch (err){
+    console.error("Failed to load upload history", err);
+    historyList.innerHTML = `<p class="input-status">Failed to load history: ${esc(err.message)}</p>`;
+  }
+}
+
+document.getElementById("openHistoryBtn").addEventListener("click", () => {
+  historyModalOverlay.hidden = false;
+  clearAllConfirm.hidden = true;
+  deleteMonthConfirm.hidden = true;
+  refreshUploadHistory();
+});
+document.getElementById("historyModalClose").addEventListener("click", closeHistoryModal);
+historyModalOverlay.addEventListener("click", e => { if (e.target === historyModalOverlay) closeHistoryModal(); });
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && !historyModalOverlay.hidden) closeHistoryModal();
+});
+
+/* ---- Clear All Data: wipes every uploaded row (bills/sales/discounts/
+   cancellations, all months) and the upload history log itself, via
+   POST /api/clear-all. Irreversible and destroys real production data, so
+   it's gated behind an inline two-step confirm (button reveals an "are you
+   sure" panel) rather than acting on the first click. ---- */
+const clearAllDataBtn = document.getElementById("clearAllDataBtn");
+const clearAllConfirm = document.getElementById("clearAllConfirm");
+const clearAllConfirmText = clearAllConfirm.querySelector("p").innerHTML;
+const clearAllCancelBtn = document.getElementById("clearAllCancelBtn");
+const clearAllConfirmBtn = document.getElementById("clearAllConfirmBtn");
+
+clearAllDataBtn.addEventListener("click", () => {
+  deleteMonthConfirm.hidden = true;
+  clearAllConfirm.querySelector("p").innerHTML = clearAllConfirmText;
+  clearAllConfirm.hidden = false;
+});
+clearAllCancelBtn.addEventListener("click", () => { clearAllConfirm.hidden = true; });
+clearAllConfirmBtn.addEventListener("click", async () => {
+  clearAllConfirmBtn.disabled = true;
+  clearAllConfirmBtn.textContent = "Deleting…";
+  try {
+    const res = await fetch("/api/clear-all", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: document.getElementById("clearAllPassword").value }),
+    });
+    if (!res.ok) {
+      let detail = `Server returned ${res.status}`;
+      try { detail = (await res.json()).detail || detail; } catch {}
+      throw new Error(detail);
+    }
+    document.getElementById("clearAllPassword").value = "";
+    clearAllConfirm.hidden = true;
+    closeHistoryModal();
+    applyDataset(await loadDashboardData());
+  } catch (err){
+    console.error("Clear all data failed", err);
+    clearAllConfirm.querySelector("p").innerHTML =
+      `<b>Failed to clear data:</b> ${esc(err.message)}. Nothing was deleted — try again.`;
+  } finally {
+    clearAllConfirmBtn.disabled = false;
+    clearAllConfirmBtn.textContent = "Yes, delete everything";
+  }
+});
+
+/* ---- Delete Month: wipes one month's data from just the dataset(s) the
+   client picks (e.g. only Cancelled KOTs for 2026-04), via POST
+   /api/delete-month. For when a client's source file
+   changed after they'd already uploaded it and they want the old month's
+   data gone - re-uploading the corrected report would also cleanly replace
+   it, but this lets them clear it out on its own first. Same inline
+   two-step confirm pattern as Clear All Data, scoped to one history row's
+   month(s) instead of everything. ---- */
+const deleteMonthConfirm = document.getElementById("deleteMonthConfirm");
+const deleteMonthText = document.getElementById("deleteMonthText");
+const deleteMonthCancelBtn = document.getElementById("deleteMonthCancelBtn");
+const deleteMonthConfirmBtn = document.getElementById("deleteMonthConfirmBtn");
+let deleteMonthTargets = [];
+
+function openDeleteMonthConfirm(months){
+  clearAllConfirm.hidden = true;
+  deleteMonthTargets = months;
+  deleteMonthText.innerHTML =
+    `<b>Delete data for ${esc(months.join(", "))}</b> - pick which dataset(s) to wipe for ${months.length > 1 ? "these months" : "this month"}. This cannot be undone.`;
+  deleteMonthConfirm.querySelectorAll(".dm-ds").forEach(cb => { cb.checked = false; });
+  deleteMonthConfirm.hidden = false;
+}
+deleteMonthCancelBtn.addEventListener("click", () => { deleteMonthConfirm.hidden = true; });
+deleteMonthConfirmBtn.addEventListener("click", async () => {
+  const datasets = [...deleteMonthConfirm.querySelectorAll(".dm-ds:checked")].map(cb => cb.value);
+  if (!datasets.length){
+    deleteMonthText.innerHTML = `<b>Pick at least one dataset to delete.</b>`;
+    return;
+  }
+  deleteMonthConfirmBtn.disabled = true;
+  deleteMonthConfirmBtn.textContent = "Deleting…";
+  try {
+    for (const month of deleteMonthTargets){
+      const res = await fetch("/api/delete-month", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ month, datasets }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.detail || `Server returned ${res.status}`);
+    }
+    deleteMonthConfirm.hidden = true;
+    await refreshUploadHistory();
+    applyDataset(await loadDashboardData());
+  } catch (err){
+    console.error("Delete month failed", err);
+    deleteMonthText.innerHTML = `<b>Failed to delete:</b> ${esc(err.message)}. Nothing further was deleted - try again.`;
+  } finally {
+    deleteMonthConfirmBtn.disabled = false;
+    deleteMonthConfirmBtn.textContent = "Delete Selected";
+  }
+});
+
+/* Share: builds a REAL PDF (html2canvas rasterizes the on-screen report, jsPDF
+   assembles the pages - the only way to get an actual PDF file in hand without a
+   backend) plus the same Excel workbook as the "Excel" button, then hands both to
+   the OS's native Share sheet (Web Share API) so the user picks Outlook/Gmail/Teams/
+   etc. with both files already attached - no manual "download then attach" step.
+   Falls back to the old "open an email draft with a reminder" behavior wherever the
+   native share sheet or file-sharing isn't available (e.g. no internet to load the
+   PDF library, or a browser without Web Share). */
+const PDF_IGNORE_SELECTOR = ".controls, .page-tabs, .site-footer, .modal-overlay, .xf-btn, .clear-chip, .oc-link, .tf-export";
+async function captureReportCanvas(){
+  return html2canvas(document.getElementById("appRoot"), {
+    scale: 2,
+    backgroundColor: "#ffffff",
+    useCORS: true,
+    ignoreElements: el => (el.matches ? el.matches(PDF_IGNORE_SELECTOR) : false),
+  });
+}
+async function generateReportPdfFile(){
+  const canvas = await captureReportCanvas();
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ unit:"pt", format:"a4" });
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const imgWidth = pageWidth;
+  const imgHeight = (canvas.height * imgWidth) / canvas.width;
+  const imgData = canvas.toDataURL("image/jpeg", 0.92);
+  let heightLeft = imgHeight, position = 0;
+  pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight);
+  heightLeft -= pageHeight;
+  while (heightLeft > 0){
+    position -= pageHeight;
+    pdf.addPage();
+    pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight);
+    heightLeft -= pageHeight;
+  }
+  const stamp = new Date().toISOString().slice(0, 10);
+  return new File([pdf.output("blob")], `KCK Sales Dashboard - ${periodLabel()} - ${stamp}.pdf`, { type:"application/pdf" });
+}
+function generateReportExcelFile(){
+  const stamp = new Date().toISOString().slice(0, 10);
+  const bytes = buildXlsxBytes(buildReportWorkbook());
+  return new File([bytes], `KCK Sales Dashboard - ${periodLabel()} - ${stamp}.xlsx`, { type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+function downloadFile(file){
+  const url = URL.createObjectURL(file);
+  const a = document.createElement("a");
+  a.href = url; a.download = file.name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function openShareFallbackEmail(){
+  const subject = encodeURIComponent(`KCK Sales Dashboard — ${periodLabel()} (${outletLabel()})`);
+  const body = encodeURIComponent(
+    `Hi,\n\nPlease find attached the Kappa Chakka Kandhari sales report for ${periodLabel()}, ${outletLabel()}.\n\n` +
+    `(The PDF and Excel copies have just been saved to your Downloads folder — attach both here before sending.)\n\n` +
+    `Regards,\nGSV Associates LLP`
+  );
+  window.location.href = `mailto:?subject=${subject}&body=${body}`;
+}
+/* Every click ALWAYS saves both files to Downloads first — a guaranteed copy of
+   both, regardless of what the native share panel or its target app ends up doing
+   (e.g. some share targets, Gmail's web share among them, only accept one file per
+   share and silently drop the rest - nothing a web page can change about that). The
+   native share is then attempted on top, purely as a convenience for apps that do
+   support it (Outlook desktop, Teams, etc.). */
+const shareReportBtn = document.getElementById("shareReportBtn");
+shareReportBtn.addEventListener("click", async () => {
+  shareReportBtn.disabled = true;
+  const prevTitle = shareReportBtn.title;
+  shareReportBtn.title = "Preparing PDF and Excel files…";
+  try {
+    let pdfFile = null;
+    if (window.jspdf && window.html2canvas){
+      try { pdfFile = await generateReportPdfFile(); }
+      catch (err){ console.error("PDF generation failed, continuing with Excel only:", err); }
+    }
+    const xlsxFile = generateReportExcelFile();
+    if (pdfFile) downloadFile(pdfFile);
+    downloadFile(xlsxFile);
+
+    const files = [pdfFile, xlsxFile].filter(Boolean);
+    const shareData = {
+      title: `KCK Sales Dashboard — ${periodLabel()} (${outletLabel()})`,
+      text: `Kappa Chakka Kandhari sales report for ${periodLabel()}, ${outletLabel()}.`,
+      files,
+    };
+    if (navigator.share && navigator.canShare && navigator.canShare(shareData)) await navigator.share(shareData);
+    else openShareFallbackEmail();
+  } catch (err){
+    if (err && err.name !== "AbortError"){ console.error("Share failed, falling back to email draft:", err); openShareFallbackEmail(); }
+  } finally {
+    shareReportBtn.disabled = false;
+    shareReportBtn.title = prevTitle;
+  }
+});
+
+/* sticky header condensing (small screens) */
+const header = document.getElementById("siteHeader");
+let ticking = false;
+window.addEventListener("scroll", () => {
+  if (ticking) return;
+  ticking = true;
+  requestAnimationFrame(() => {
+    header.classList.toggle("condensed", window.scrollY > 60);
+    ticking = false;
+  });
+}, { passive:true });
+
+/* ---- session / role ----
+   The server only sends this page to a signed-in user (see "/" in the backend);
+   there are no credentials in this file. /api/me says which role the session
+   has so admin-only buttons can be hidden for viewers - the server enforces the
+   same rule on every request regardless, so this is only cosmetic. */
+const appRoot = document.getElementById("appRoot");
+const bootStatus = document.getElementById("bootStatus");
+let SESSION_ROLE = "viewer";
+
+function applyRoleUI(role){
+  const viewer = role !== "admin";
+  document.getElementById("openInputBtn").style.display = viewer ? "none" : "";
+  document.getElementById("openHistoryBtn").style.display = viewer ? "none" : "";
+}
+
+async function startApp(){
+  let raw;
+  try {
+    SESSION_ROLE = (await fetchJson("/api/me")).role;
+    raw = await loadDashboardData();
+  } catch (err) {
+    console.error("Failed to load dashboard data from the API", err);
+    bootStatus.textContent = "Could not load dashboard data - is the backend server running?";
+    return;
+  }
+  applyDashboardData(raw);
+  ACTIVE_RAW_DATA = raw;
+  bootStatus.style.display = "none";
+  appRoot.style.display = "block";
+  updateHeaderMeta();
+  applyRoleUI(SESSION_ROLE);
+  renderAll(); // deferred until visible so Chart.js measures a real (non-zero) canvas size
+}
+startApp();
+document.getElementById("logoutBtn").addEventListener("click", async () => {
+  try { await fetch("/api/logout", { method: "POST" }); } catch {}
+  location.reload();
+});
+</script>
+</body>
+</html>
