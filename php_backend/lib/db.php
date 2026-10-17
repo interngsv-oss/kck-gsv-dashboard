@@ -46,8 +46,36 @@ function kck_db(): PDO {
     return $pdo;
 }
 
+/** Bump when anything below changes - the whole routine is skipped on every
+ * request once the database has recorded this version, so the (slow, table-
+ * locking) DDL statements no longer run on every single API call. */
+const KCK_SCHEMA_VERSION = 3;
+
+/** Tables/columns added after the first release. Kept here (not only in
+ * schema.sql) so they are created even if an older schema.sql is on the server. */
+const KCK_EXTRA_TABLES = [
+    "CREATE TABLE IF NOT EXISTS app_flags (k VARCHAR(48) PRIMARY KEY, v VARCHAR(255) NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS app_holidays (id INT AUTO_INCREMENT PRIMARY KEY, date DATE NOT NULL, name VARCHAR(120) NOT NULL, branch VARCHAR(16) NOT NULL DEFAULT 'All')",
+];
+
+function kck_column_exists(PDO $pdo, string $table, string $column): bool {
+    $stmt = $pdo->prepare(
+        'SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t AND COLUMN_NAME = :c'
+    );
+    $stmt->execute([':t' => $table, ':c' => $column]);
+    return (int) $stmt->fetchColumn() > 0;
+}
+
 function kck_ensure_schema(): void {
     $pdo = kck_db();
+    // Fast path: already migrated -> a single cheap SELECT and nothing else.
+    try {
+        $v = $pdo->query("SELECT v FROM app_flags WHERE k = 'schema_version'")->fetchColumn();
+        if ($v !== false && (int) $v >= KCK_SCHEMA_VERSION) return;
+    } catch (PDOException $e) {
+        // app_flags doesn't exist yet - first run of this version, carry on.
+    }
+
     $sql = file_get_contents(__DIR__ . '/../schema.sql');
     // Strip "-- ..." comment lines before splitting on ";" - schema.sql's own
     // prose comments can contain a literal semicolon (e.g. "produces;
@@ -55,7 +83,8 @@ function kck_ensure_schema(): void {
     // wrongly treat as a statement boundary, slicing a CREATE TABLE
     // statement's leading comment off into its own invalid "statement".
     $sql = preg_replace('/^--.*$/m', '', $sql);
-    foreach (array_filter(array_map('trim', explode(';', $sql))) as $stmt) {
+    $statements = array_filter(array_map('trim', explode(';', $sql)));
+    foreach (array_merge($statements, KCK_EXTRA_TABLES) as $stmt) {
         try {
             $pdo->exec($stmt);
         } catch (PDOException $e) {
@@ -63,11 +92,25 @@ function kck_ensure_schema(): void {
             // "Duplicate key name" on repeated calls (mirrors the
             // idempotency CREATE TABLE IF NOT EXISTS gives the other
             // statements).
-            // ALTER TABLE ... ADD COLUMN likewise has no IF NOT EXISTS on MySQL.
-            $msg = $e->getMessage();
-            if (strpos($msg, 'Duplicate key name') === false && strpos($msg, 'Duplicate column name') === false) {
+            if (strpos($e->getMessage(), 'Duplicate key name') === false) {
                 throw $e;
             }
         }
     }
+    // Index on the holidays table, only if the table has none yet.
+    try {
+        $pdo->exec('CREATE INDEX holidays_date_idx ON app_holidays (date)');
+    } catch (PDOException $e) {
+        if (strpos($e->getMessage(), 'Duplicate key name') === false) throw $e;
+    }
+    // Exact cancellation reason typed in Posist (the older "reason" column only holds the group).
+    if (!kck_column_exists($pdo, 'cancellations', 'reasonText')) {
+        try {
+            $pdo->exec('ALTER TABLE cancellations ADD COLUMN reasonText VARCHAR(255) NULL');
+        } catch (PDOException $e) {
+            if (strpos($e->getMessage(), 'Duplicate column name') === false) throw $e;   // lost a race with another request
+        }
+    }
+    $pdo->prepare("INSERT INTO app_flags (k, v) VALUES ('schema_version', :v) ON DUPLICATE KEY UPDATE v = VALUES(v)")
+        ->execute([':v' => (string) KCK_SCHEMA_VERSION]);
 }

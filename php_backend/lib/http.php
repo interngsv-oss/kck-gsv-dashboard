@@ -18,7 +18,20 @@ function kck_json_error(int $status, string $detail): void {
 function kck_install_error_handler(): void {
     set_exception_handler(function (Throwable $e) {
         error_log((string) $e);
-        kck_json_error(500, 'Something went wrong processing that upload. Please try again or contact support.');
+        $detail = 'Something went wrong processing that upload. Please try again or contact support.';
+        // Only a signed-in ADMIN (the only role that can upload) also sees what actually failed,
+        // so a problem can be diagnosed without digging through server logs. Viewers and
+        // anonymous visitors still get just the generic message.
+        try {
+            if (function_exists('kck_current_session')) {
+                $session = kck_current_session();
+                if ($session && ($session['r'] ?? '') === 'admin') {
+                    $detail .= ' [Details for admin: ' . get_class($e) . ': ' . mb_substr($e->getMessage(), 0, 300) . ']';
+                }
+            }
+        } catch (Throwable $ignored) {
+        }
+        kck_json_error(500, $detail);
     });
     // Also convert PHP warnings/notices (e.g. an unexpected cell shape) into
     // exceptions, same spirit as Python unexpectedly raising on a bad value,

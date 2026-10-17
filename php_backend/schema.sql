@@ -132,25 +132,3 @@ CREATE TABLE IF NOT EXISTS app_backups (
     label VARCHAR(255) NOT NULL,
     data LONGTEXT NOT NULL
 );
-
--- Public holidays shown in "View Holidays" and used by the Day Type filter.
--- branch is All (both outlets), Chennai or Bengaluru. Admins add, edit and
--- delete rows from the dashboard.
-CREATE TABLE IF NOT EXISTS app_holidays (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    date DATE NOT NULL,
-    name VARCHAR(120) NOT NULL,
-    branch VARCHAR(16) NOT NULL DEFAULT 'All'
-);
-CREATE INDEX holidays_date_idx ON app_holidays (date);
-
--- Tiny key/value table for one-off markers such as "the holiday list has
--- been seeded from the built-in defaults".
-CREATE TABLE IF NOT EXISTS app_flags (
-    k VARCHAR(48) PRIMARY KEY,
-    v VARCHAR(255) NOT NULL
-);
-
--- The exact cancellation reason typed in Posist (the existing reason column
--- only holds the group: Guest Cancellation, Change Of Item, Other, ...).
-ALTER TABLE cancellations ADD COLUMN reasonText VARCHAR(255) NULL;
