@@ -170,6 +170,11 @@ def parse_bill_item_report(fp, branch_label):
     wb = openpyxl.load_workbook(fp, data_only=True, read_only=True)
     ws = wb["Sheet1"]
     agg = defaultdict(lambda: {"qty": 0.0, "value": 0.0})
+    # Posist spells one dish in several cases ("Erachi curry" / "ERACHI CURRY"). Those are
+    # ONE dish (and a case-insensitive database treats them as one key, where the second
+    # insert would overwrite the first's quantity) - so rows are summed under a lower-cased
+    # key and shown under whichever spelling sold the most portions.
+    spell_qty = defaultdict(lambda: defaultdict(float))
     for row in ws.iter_rows(min_row=9, values_only=True):
         qty = row[16]
         if not isinstance(qty, (int, float)) or qty <= 0:
@@ -180,13 +185,17 @@ def parse_bill_item_report(fp, branch_label):
         row_date = _to_iso_date(row[7])  # Open Time
         if row_date is None or not item:
             continue
-        key = (row_date, category, item)
+        dish_key = (str(category or "").lower(), item.lower())
+        spell_qty[dish_key][(category, item)] += qty
+        key = (row_date, dish_key)
         agg[key]["qty"] += qty
         agg[key]["value"] += amount
     wb.close()
+    canonical = {k: max(v.items(), key=lambda kv: kv[1])[0] for k, v in spell_qty.items()}
 
     sales = []
-    for (row_date, category, item), v in agg.items():
+    for (row_date, dish_key), v in agg.items():
+        category, item = canonical[dish_key]
         rate = round(v["value"] / v["qty"], 2) if v["qty"] else 0.0
         sales.append({
             "date": row_date,
@@ -244,6 +253,8 @@ def parse_discount_report(fp, branch_label, bill_totals):
             continue
         row_date = _discount_date(row[3])
         disc_amt = row[7] if isinstance(row[7], (int, float)) else 0.0
+        if disc_amt <= 0:
+            continue  # listed in the report but nothing was discounted
         is_foc = str(row[11]).strip().upper() == "YES" if row[11] is not None else False
         bill_key = str(trxno).strip()
         item_value = bill_totals.get(bill_key)
@@ -290,6 +301,12 @@ def _classify_cancel_reason(comment):
     if cl == "change of item":
         return "Change Of Item"
     return "Other"
+
+
+def _cancel_reason_text(comment):
+    """The cancellation reason exactly as typed in Posist ("Not Specified" when blank)."""
+    c = "" if comment is None else " ".join(str(comment).split())
+    return "Not Specified" if c in ("", "-") else c
 
 
 def parse_kot_tracking_report(fp, branch_label):
@@ -339,6 +356,7 @@ def parse_kot_tracking_report(fp, branch_label):
     # always has exactly one sheet, take whichever one is actually there.
     ws = wb["Sheet1"] if "Sheet1" in wb.sheetnames else wb[wb.sheetnames[0]]
     agg = {}
+    spell_qty = defaultdict(lambda: defaultdict(float))  # lower(item) -> {exact spelling: qty}
     cur_date = None
     cur_bill = None
     for row in ws.iter_rows(min_row=9, values_only=True):
@@ -367,28 +385,36 @@ def parse_kot_tracking_report(fp, branch_label):
             continue
         qty = row[1]
         value = float(row[3]) if isinstance(row[3], (int, float)) else 0.0
-        reason = _classify_cancel_reason(row[5] if len(row) > 5 else None)
-        key = (cur_date, cur_bill, item, reason)
+        comment = row[5] if len(row) > 5 else None
+        reason = _classify_cancel_reason(comment)
+        reason_text = _cancel_reason_text(comment)
+        item_key = item.lower()
+        spell_qty[item_key][item] += qty
+        key = (cur_date, cur_bill, item_key, reason)
         if key in agg:
             entry = agg[key]
             entry["qty"] += qty
             entry["value"] += value
+            if reason_text not in entry["texts"]:
+                entry["texts"].append(reason_text)
         else:
-            agg[key] = {"qty": qty, "value": value, "reason": reason}
+            agg[key] = {"qty": qty, "value": value, "reason": reason, "texts": [reason_text]}
     wb.close()
+    canonical_item = {k: max(v.items(), key=lambda kv: kv[1])[0] for k, v in spell_qty.items()}
 
     cancellations = []
-    for (row_date, bill, item, reason), v in agg.items():
+    for (row_date, bill, item_key, reason), v in agg.items():
         qty = v["qty"]
         cancellations.append({
             "date": row_date,
             "branch": branch_label,
             "bill": bill,
-            "item": item,
+            "item": canonical_item[item_key],
             "qty": qty if qty % 1 else int(qty),
             "rate": round(v["value"] / qty, 2) if qty else 0.0,
             "value": round(v["value"], 2),
             "reason": reason,
+            "reasonText": "; ".join(v["texts"])[:255],
         })
     return cancellations
 

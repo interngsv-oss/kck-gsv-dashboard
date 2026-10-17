@@ -19,7 +19,7 @@ const KCK_TABLE_COLUMNS = [
     'bills' => ['branch', 'bill', 'date', 'hour', 'covers', 'salesValue', 'serviceType'],
     'sales' => ['branch', 'date', 'category', 'item', 'qty', 'rate', 'value'],
     'discounts' => ['branch', 'bill', 'date', 'lineSeq', 'itemValue', 'discountValue', 'net', 'isFull', 'reason', 'type', 'remarks'],
-    'cancellations' => ['branch', 'bill', 'date', 'item', 'reason', 'qty', 'rate', 'value'],
+    'cancellations' => ['branch', 'bill', 'date', 'item', 'reason', 'qty', 'rate', 'value', 'reasonText'],
 ];
 
 function kck_default_meta(): array {
@@ -91,6 +91,7 @@ function kck_row_from_db(string $dataset, array $r): array {
             return [
                 'branch' => $r['branch'], 'bill' => $r['bill'], 'date' => $r['date'], 'item' => $r['item'],
                 'reason' => $r['reason'], 'qty' => $r['qty'] + 0, 'rate' => (float) $r['rate'], 'value' => (float) $r['value'],
+                'reasonText' => $r['reasonText'] ?? null,
             ];
     }
     throw new InvalidArgumentException("Unknown dataset '$dataset'");
@@ -433,4 +434,78 @@ function kck_get_backup(int $id): ?array {
     $stmt->execute([':id' => $id]);
     $data = $stmt->fetchColumn();
     return $data === false ? null : json_decode($data, true);
+}
+
+
+// ---- public holidays (admin-editable) ----
+const KCK_HOLIDAY_BRANCHES = ['All', 'Chennai', 'Bengaluru'];
+
+function kck_holidays_seeded(): bool {
+    $stmt = kck_db()->prepare("SELECT v FROM app_flags WHERE k = 'holidays_seeded'");
+    $stmt->execute();
+    return $stmt->fetchColumn() !== false;
+}
+
+function kck_list_holidays(): array {
+    $rows = kck_db()->query('SELECT id, date, name, branch FROM app_holidays ORDER BY date, id')->fetchAll(PDO::FETCH_ASSOC);
+    return array_map(fn($r) => ['id' => (int) $r['id'], 'date' => $r['date'], 'name' => $r['name'], 'branch' => $r['branch']], $rows);
+}
+
+/** Returns a cleaned [date, name, branch] or null when the input is unusable. */
+function kck_clean_holiday($date, $name, $branch): ?array {
+    $date = trim((string) $date);
+    $name = trim(preg_replace('/\s+/', ' ', (string) $name));
+    $branch = (string) $branch;
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) return null;
+    [$y, $m, $d] = array_map('intval', explode('-', $date));
+    if (!checkdate($m, $d, $y)) return null;
+    if ($name === '' || mb_strlen($name) > 120) return null;
+    if (!in_array($branch, KCK_HOLIDAY_BRANCHES, true)) return null;
+    return [$date, $name, $branch];
+}
+
+function kck_add_holiday(string $date, string $name, string $branch): int {
+    $pdo = kck_db();
+    $pdo->prepare('INSERT INTO app_holidays (date, name, branch) VALUES (:d, :n, :b)')
+        ->execute([':d' => $date, ':n' => $name, ':b' => $branch]);
+    return (int) $pdo->lastInsertId();
+}
+
+function kck_update_holiday(int $id, string $date, string $name, string $branch): bool {
+    $stmt = kck_db()->prepare('UPDATE app_holidays SET date = :d, name = :n, branch = :b WHERE id = :id');
+    $stmt->execute([':d' => $date, ':n' => $name, ':b' => $branch, ':id' => $id]);
+    // rowCount() is 0 when nothing changed, so confirm the row exists instead
+    $chk = kck_db()->prepare('SELECT 1 FROM app_holidays WHERE id = :id');
+    $chk->execute([':id' => $id]);
+    return $chk->fetchColumn() !== false;
+}
+
+function kck_delete_holiday(int $id): bool {
+    $stmt = kck_db()->prepare('DELETE FROM app_holidays WHERE id = :id');
+    $stmt->execute([':id' => $id]);
+    return $stmt->rowCount() > 0;
+}
+
+/** One-time import of the dashboard's built-in holiday list. A no-op once
+ * seeded, so it can never overwrite an admin's edits. Returns rows inserted. */
+function kck_seed_holidays(array $holidays): int {
+    $pdo = kck_db();
+    $pdo->beginTransaction();
+    try {
+        if (kck_holidays_seeded()) { $pdo->rollBack(); return 0; }
+        $ins = $pdo->prepare('INSERT INTO app_holidays (date, name, branch) VALUES (:d, :n, :b)');
+        $n = 0;
+        foreach ($holidays as $h) {
+            $c = kck_clean_holiday($h['date'] ?? '', $h['name'] ?? '', $h['branch'] ?? '');
+            if (!$c) continue;
+            $ins->execute([':d' => $c[0], ':n' => $c[1], ':b' => $c[2]]);
+            $n++;
+        }
+        $pdo->exec("INSERT INTO app_flags (k, v) VALUES ('holidays_seeded', '1') ON DUPLICATE KEY UPDATE v = '1'");
+        $pdo->commit();
+        return $n;
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
 }

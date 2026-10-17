@@ -63,7 +63,9 @@ function kck_ensure_schema(): void {
             // "Duplicate key name" on repeated calls (mirrors the
             // idempotency CREATE TABLE IF NOT EXISTS gives the other
             // statements).
-            if (strpos($e->getMessage(), 'Duplicate key name') === false) {
+            // ALTER TABLE ... ADD COLUMN likewise has no IF NOT EXISTS on MySQL.
+            $msg = $e->getMessage();
+            if (strpos($msg, 'Duplicate key name') === false && strpos($msg, 'Duplicate column name') === false) {
                 throw $e;
             }
         }

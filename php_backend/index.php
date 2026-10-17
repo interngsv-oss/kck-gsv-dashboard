@@ -198,6 +198,51 @@ function kck_take_backup(string $label): int {
     return $id;
 }
 
+// ---- public holidays ----
+function kck_route_holidays_list(): void {
+    kck_require_viewer();
+    kck_json(['seeded' => kck_holidays_seeded(), 'holidays' => kck_list_holidays()]);
+}
+
+function kck_holiday_from_body(array $body): array {
+    $c = kck_clean_holiday($body['date'] ?? '', $body['name'] ?? '', $body['branch'] ?? 'All');
+    if (!$c) kck_json_error(400, 'Enter a valid date (YYYY-MM-DD), a holiday name (up to 120 characters) and an outlet (All, Chennai or Bengaluru).');
+    return $c;
+}
+
+function kck_route_holiday_create(): void {
+    kck_require_admin();
+    [$date, $name, $branch] = kck_holiday_from_body(kck_read_json_body());
+    $id = kck_add_holiday($date, $name, $branch);
+    kck_audit("HOLIDAY added #$id: $date $name ($branch)");
+    kck_json(['id' => $id, 'date' => $date, 'name' => $name, 'branch' => $branch]);
+}
+
+function kck_route_holiday_update(int $id): void {
+    kck_require_admin();
+    [$date, $name, $branch] = kck_holiday_from_body(kck_read_json_body());
+    if (!kck_update_holiday($id, $date, $name, $branch)) kck_json_error(404, 'No such holiday.');
+    kck_audit("HOLIDAY edited #$id: $date $name ($branch)");
+    kck_json(['id' => $id, 'date' => $date, 'name' => $name, 'branch' => $branch]);
+}
+
+function kck_route_holiday_delete(int $id): void {
+    kck_require_admin();
+    if (!kck_delete_holiday($id)) kck_json_error(404, 'No such holiday.');
+    kck_audit("HOLIDAY deleted #$id");
+    kck_json(['deleted' => true]);
+}
+
+function kck_route_holidays_seed(): void {
+    kck_require_admin();
+    $body = kck_read_json_body();
+    $list = $body['holidays'] ?? [];
+    if (!is_array($list) || count($list) > 5000) kck_json_error(400, 'Invalid holiday list.');
+    $n = kck_seed_holidays($list);
+    if ($n) kck_audit("HOLIDAYS seeded with $n built-in entries");
+    kck_json(['seeded' => $n]);
+}
+
 function kck_route_audit_log(): void {
     kck_require_admin();
     kck_json(kck_read_audit(500));
@@ -604,6 +649,16 @@ if ($path === '/' && in_array($method, ['GET', 'HEAD'], true)) {
     kck_route_migrate_discount_reasons();
 } elseif ($path === '/api/migrate-zero-sales-bills' && $method === 'POST') {
     kck_route_migrate_zero_sales_bills();
+} elseif ($path === '/api/holidays' && $method === 'GET') {
+    kck_route_holidays_list();
+} elseif ($path === '/api/holidays' && $method === 'POST') {
+    kck_route_holiday_create();
+} elseif ($path === '/api/holidays/seed' && $method === 'POST') {
+    kck_route_holidays_seed();
+} elseif (preg_match('#^/api/holidays/(\d+)$#', $path, $hm) && $method === 'PUT') {
+    kck_route_holiday_update((int) $hm[1]);
+} elseif (preg_match('#^/api/holidays/(\d+)$#', $path, $hm) && $method === 'DELETE') {
+    kck_route_holiday_delete((int) $hm[1]);
 } elseif (preg_match('#^/api/([^/]+)$#', $path, $m)) {
     $dataset = $m[1];
     switch ($method) {

@@ -220,6 +220,9 @@ function kck_parse_bill_item_report(string $fp, string $branchLabel): array {
     // open_time, category, item, qty, amount
     $rows = kck_sheet_rows($fp, 'Sheet1', 9, [7, 10, 11, 16, 18]);
     $agg = []; // "date\x01category\x01item" => ['qty'=>, 'value'=>]
+    // Total portions per exact spelling of each case-insensitive dish, used below to
+    // pick the spelling to show.
+    $spellQty = []; // "lower(category)\x01lower(item)" => ["category\x02item" => qty]
     foreach ($rows as $row) {
         $qty = kck_col($row, 16);
         if (!kck_is_number($qty) || $qty <= 0) continue; // header repeats / BILL TOTAL / combo sub-lines
@@ -229,10 +232,26 @@ function kck_parse_bill_item_report(string $fp, string $branchLabel): array {
         $amount = kck_is_number($amountRaw) ? $amountRaw : 0.0;
         $rowDate = kck_to_iso_date(kck_col($row, 7)); // Open Time
         if ($rowDate === null || !kck_py_truthy($item)) continue;
-        $key = $rowDate . "\x01" . $category . "\x01" . $item;
-        if (!isset($agg[$key])) $agg[$key] = ['date' => $rowDate, 'category' => $category, 'item' => $item, 'qty' => 0.0, 'value' => 0.0];
+        // Posist spells one dish in several cases ("Erachi curry" / "ERACHI CURRY"), and the
+        // database treats those as the SAME key - so they must be summed here, not
+        // inserted separately (the second insert would overwrite the first's quantity).
+        $dishKey = mb_strtolower((string) $category) . "\x01" . mb_strtolower((string) $item);
+        $spellQty[$dishKey][$category . "\x02" . $item] = ($spellQty[$dishKey][$category . "\x02" . $item] ?? 0) + $qty;
+        $key = $rowDate . "\x01" . $dishKey;
+        if (!isset($agg[$key])) $agg[$key] = ['date' => $rowDate, 'dishKey' => $dishKey, 'qty' => 0.0, 'value' => 0.0];
         $agg[$key]['qty'] += $qty;
         $agg[$key]['value'] += $amount;
+    }
+    $canonical = [];
+    foreach ($spellQty as $dishKey => $spellings) {
+        arsort($spellings);
+        $best = (string) array_key_first($spellings);
+        [$cat, $itm] = explode("\x02", $best, 2);
+        $canonical[$dishKey] = [$cat, $itm];
+    }
+    foreach ($agg as $k => $v) {
+        $agg[$k]['category'] = $canonical[$v['dishKey']][0];
+        $agg[$k]['item'] = $canonical[$v['dishKey']][1];
     }
 
     $sales = [];
@@ -286,6 +305,7 @@ function kck_parse_discount_report(string $fp, string $branchLabel, array $billT
         $rowDate = kck_discount_date(kck_col($row, 3));
         $discAmtRaw = kck_col($row, 7);
         $discAmt = kck_is_number($discAmtRaw) ? $discAmtRaw : 0.0;
+        if ($discAmt <= 0) continue;   // listed in the report but nothing was discounted
         $isFocRaw = kck_col($row, 11);
         $isFoc = $isFocRaw !== null ? (strtoupper(trim((string) $isFocRaw)) === 'YES') : false;
         $billKey = trim((string) $trxno);
@@ -322,6 +342,12 @@ function kck_classify_cancel_reason($comment): string {
     return 'Other';
 }
 
+/** The reason exactly as typed in Posist ("Not Specified" when blank). */
+function kck_cancel_reason_text($comment): string {
+    $c = $comment === null ? '' : trim(preg_replace('/\s+/', ' ', (string) $comment));
+    return ($c === '' || $c === '-') ? 'Not Specified' : $c;
+}
+
 /** -> cancellation rows, one per cancelled ("Deleted") item line. See
  * parsers.py's parse_kot_tracking_report docstring in full - this is the
  * most structurally unusual report (nested/stateful layout, rows classified
@@ -334,7 +360,8 @@ function kck_parse_kot_tracking_report(string $fp, string $branchLabel): array {
     // isn't present.
     // c0 (date marker/item name), qty, bill-header-or-rate shape check, value, status, reason
     $rows = kck_sheet_rows($fp, 'Sheet1', 9, [0, 1, 2, 3, 4, 5]);
-    $agg = []; // "date\x01bill\x01item\x01reason" => ['qty'=>,'value'=>,'reason'=>]
+    $agg = []; // "date\x01bill\x01lower(item)\x01reason" => ['qty'=>,'value'=>,'reason'=>]
+    $spellQty = []; // lower(item) => [exact spelling => qty], to pick the spelling to show
     $curDate = null;
     $curBill = null;
     foreach ($rows as $row) {
@@ -366,14 +393,24 @@ function kck_parse_kot_tracking_report(string $fp, string $branchLabel): array {
         $qty = $c1;
         $valueRaw = kck_col($row, 3);
         $value = kck_is_number($valueRaw) ? (float) $valueRaw : 0.0;
-        $reason = kck_classify_cancel_reason(kck_col($row, 5));
-        $key = $curDate . "\x01" . $curBill . "\x01" . $item . "\x01" . $reason;
+        $commentRaw = kck_col($row, 5);
+        $reason = kck_classify_cancel_reason($commentRaw);
+        $reasonText = kck_cancel_reason_text($commentRaw);
+        $itemKey = mb_strtolower((string) $item);
+        $spellQty[$itemKey][$item] = ($spellQty[$itemKey][$item] ?? 0) + $qty;
+        $key = $curDate . "\x01" . $curBill . "\x01" . $itemKey . "\x01" . $reason;
         if (isset($agg[$key])) {
             $agg[$key]['qty'] += $qty;
             $agg[$key]['value'] += $value;
+            if (!in_array($reasonText, $agg[$key]['texts'], true)) $agg[$key]['texts'][] = $reasonText;
         } else {
-            $agg[$key] = ['date' => $curDate, 'bill' => $curBill, 'item' => $item, 'reason' => $reason, 'qty' => $qty, 'value' => $value];
+            $agg[$key] = ['date' => $curDate, 'bill' => $curBill, 'itemKey' => $itemKey, 'reason' => $reason, 'qty' => $qty, 'value' => $value, 'texts' => [$reasonText]];
         }
+    }
+    $canonicalItem = [];
+    foreach ($spellQty as $itemKey => $spellings) {
+        arsort($spellings);
+        $canonicalItem[$itemKey] = (string) array_key_first($spellings);
     }
 
     $cancellations = [];
@@ -383,11 +420,12 @@ function kck_parse_kot_tracking_report(string $fp, string $branchLabel): array {
             'date' => $v['date'],
             'branch' => $branchLabel,
             'bill' => $v['bill'],
-            'item' => $v['item'],
+            'item' => $canonicalItem[$v['itemKey']],
             'qty' => fmod($qty, 1) != 0 ? $qty : (int) $qty,
             'rate' => $qty ? round($v['value'] / $qty, 2) : 0.0,
             'value' => round($v['value'], 2),
             'reason' => $v['reason'],
+            'reasonText' => mb_substr(implode('; ', $v['texts']), 0, 255),
         ];
     }
     return $cancellations;
