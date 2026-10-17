@@ -17,6 +17,7 @@ kck_install_error_handler();
 // No CORS headers: the dashboard and its API are same-origin, and a wildcard
 // policy would only let other sites' scripts talk to the API.
 header('X-Robots-Tag: noindex, nofollow');
+header_remove('X-Powered-By');   // don't advertise the PHP version
 header('X-Frame-Options: DENY');
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: no-referrer');
