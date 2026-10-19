@@ -303,10 +303,16 @@ def _classify_cancel_reason(comment):
     return "Other"
 
 
-def _cancel_reason_text(comment):
-    """The cancellation reason exactly as typed in Posist ("Not Specified" when blank)."""
+def _real_comment(comment):
+    """A comment cell's text, or "" when it is blank / "-" / "N/A" (Posist's own "nothing here" markers)."""
     c = "" if comment is None else " ".join(str(comment).split())
-    return "Not Specified" if c in ("", "-") else c
+    return "" if c in ("", "-") or c.lower() == "n/a" else c
+
+
+def _no_reason_text(status):
+    """Shown when Posist holds no reason anywhere for a cancelled item; the KOT's own status
+    ("KOT Voided" / "Bill Voided") is the only extra information available."""
+    return "No reason entered in Posist" + (f" ({status})" if status and status != "-" else "")
 
 
 def parse_kot_tracking_report(fp, branch_label):
@@ -359,11 +365,29 @@ def parse_kot_tracking_report(fp, branch_label):
     spell_qty = defaultdict(lambda: defaultdict(float))  # lower(item) -> {exact spelling: qty}
     cur_date = None
     cur_bill = None
-    for row in ws.iter_rows(min_row=9, values_only=True):
+    # Start at row 8 (the column-title row) so each file's own column layout can be read: the
+    # position of KOT Status / KOT Comment / Edit Bill Comment differs per branch.
+    col_status = col_kot_comment = col_bill_comment = None
+    cur_status = cur_kot_comment = cur_bill_comment = ""
+
+    def _cell(row, idx):
+        return row[idx] if idx is not None and idx < len(row) else None
+
+    for row in ws.iter_rows(min_row=8, values_only=True):
         c0 = row[0]
         if c0 is None:
             continue
         s0 = str(c0).strip()
+        if s0 == "KOT Number":
+            for i, h in enumerate(row):
+                name = str(h).strip() if h is not None else ""
+                if name == "KOT Status":
+                    col_status = i
+                elif name == "KOT Comment":
+                    col_kot_comment = i
+                elif name == "Edit Bill Comment":
+                    col_bill_comment = i
+            continue
         if row[1] is None and _KOT_DATE_RE.match(s0):
             cur_date = s0
             continue
@@ -374,6 +398,9 @@ def parse_kot_tracking_report(fp, branch_label):
             # row) is read; KOT-level status/comment are ignored since the
             # item-level fields below are the reliable signal.
             cur_bill = row[2].strip()
+            cur_status = str(_cell(row, col_status) or "").strip()
+            cur_kot_comment = _real_comment(_cell(row, col_kot_comment))
+            cur_bill_comment = _real_comment(_cell(row, col_bill_comment))
             continue
         if not (isinstance(row[1], (int, float)) and isinstance(row[2], (int, float))):
             continue  # unrecognised row shape - skip rather than guess
@@ -385,9 +412,11 @@ def parse_kot_tracking_report(fp, branch_label):
             continue
         qty = row[1]
         value = float(row[3]) if isinstance(row[3], (int, float)) else 0.0
-        comment = row[5] if len(row) > 5 else None
-        reason = _classify_cancel_reason(comment)
-        reason_text = _cancel_reason_text(comment)
+        # The item's own comment wins; otherwise the KOT's comment, then the bill's. Only when
+        # none of them has any text is the item truly "Not Specified".
+        effective = _real_comment(row[5] if len(row) > 5 else None) or cur_kot_comment or cur_bill_comment
+        reason = _classify_cancel_reason(effective or None)
+        reason_text = effective or _no_reason_text(cur_status)
         item_key = item.lower()
         spell_qty[item_key][item] += qty
         key = (cur_date, cur_bill, item_key, reason)

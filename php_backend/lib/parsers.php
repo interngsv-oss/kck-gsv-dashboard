@@ -342,10 +342,16 @@ function kck_classify_cancel_reason($comment): string {
     return 'Other';
 }
 
-/** The reason exactly as typed in Posist ("Not Specified" when blank). */
-function kck_cancel_reason_text($comment): string {
+/** A comment cell's text, or '' when it is blank / "-" / "N/A" (Posist's own "nothing here" markers). */
+function kck_real_comment($comment): string {
     $c = $comment === null ? '' : trim(preg_replace('/\s+/', ' ', (string) $comment));
-    return ($c === '' || $c === '-') ? 'Not Specified' : $c;
+    return ($c === '' || $c === '-' || strtolower($c) === 'n/a') ? '' : $c;
+}
+
+/** Shown when Posist holds no reason anywhere for a cancelled item; the KOT's own status
+ * ("KOT Voided" / "Bill Voided") is the only extra information available. */
+function kck_no_reason_text(string $status): string {
+    return 'No reason entered in Posist' . (($status !== '' && $status !== '-') ? " ($status)" : '');
 }
 
 /** -> cancellation rows, one per cancelled ("Deleted") item line. See
@@ -359,7 +365,12 @@ function kck_parse_kot_tracking_report(string $fp, string $branchLabel): array {
     // kck_sheet_rows() already falls back to the first sheet when "Sheet1"
     // isn't present.
     // c0 (date marker/item name), qty, bill-header-or-rate shape check, value, status, reason
-    $rows = kck_sheet_rows($fp, 'Sheet1', 9, [0, 1, 2, 3, 4, 5]);
+    // Start at row 8 (the column-title row) so each file's own column layout can be read; the
+    // title row is recognised below and never treated as data. Columns 0-9 cover the KOT header
+    // row (incl. KOT Status / KOT Comment / Edit Bill Comment, whose position differs per branch).
+    $rows = kck_sheet_rows($fp, 'Sheet1', 8, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    $colStatus = null; $colKotComment = null; $colBillComment = null;
+    $curStatus = ''; $curKotComment = ''; $curBillComment = '';
     $agg = []; // "date\x01bill\x01lower(item)\x01reason" => ['qty'=>,'value'=>,'reason'=>]
     $spellQty = []; // lower(item) => [exact spelling => qty], to pick the spelling to show
     $curDate = null;
@@ -368,6 +379,15 @@ function kck_parse_kot_tracking_report(string $fp, string $branchLabel): array {
         $c0 = kck_col($row, 0);
         if ($c0 === null) continue;
         $s0 = trim((string) $c0);
+        if ($s0 === 'KOT Number') {
+            foreach ($row as $i => $h) {
+                $name = trim((string) $h);
+                if ($name === 'KOT Status') $colStatus = $i;
+                elseif ($name === 'KOT Comment') $colKotComment = $i;
+                elseif ($name === 'Edit Bill Comment') $colBillComment = $i;
+            }
+            continue;
+        }
         if (kck_col($row, 1) === null && preg_match('/^\d{4}-\d{2}-\d{2}$/', $s0)) {
             $curDate = $s0;
             continue;
@@ -377,8 +397,12 @@ function kck_parse_kot_tracking_report(string $fp, string $branchLabel): array {
         }
         $c2 = kck_col($row, 2);
         if (is_string($c2)) {
-            // KOT header row - only the bill number is needed.
+            // KOT header row: the bill number, plus this KOT's status and any KOT / bill level
+            // comment (used when an item has no comment of its own).
             $curBill = trim($c2);
+            $curStatus = $colStatus !== null ? trim((string) kck_col($row, $colStatus)) : '';
+            $curKotComment = $colKotComment !== null ? kck_real_comment(kck_col($row, $colKotComment)) : '';
+            $curBillComment = $colBillComment !== null ? kck_real_comment(kck_col($row, $colBillComment)) : '';
             continue;
         }
         $c1 = kck_col($row, 1);
@@ -393,9 +417,13 @@ function kck_parse_kot_tracking_report(string $fp, string $branchLabel): array {
         $qty = $c1;
         $valueRaw = kck_col($row, 3);
         $value = kck_is_number($valueRaw) ? (float) $valueRaw : 0.0;
-        $commentRaw = kck_col($row, 5);
-        $reason = kck_classify_cancel_reason($commentRaw);
-        $reasonText = kck_cancel_reason_text($commentRaw);
+        // The item's own comment wins; otherwise the KOT's comment, then the bill's. Only when
+        // none of them has any text is the item truly "Not Specified".
+        $effective = kck_real_comment(kck_col($row, 5));
+        if ($effective === '') $effective = $curKotComment;
+        if ($effective === '') $effective = $curBillComment;
+        $reason = kck_classify_cancel_reason($effective === '' ? null : $effective);
+        $reasonText = $effective !== '' ? $effective : kck_no_reason_text($curStatus);
         $itemKey = mb_strtolower((string) $item);
         $spellQty[$itemKey][$item] = ($spellQty[$itemKey][$item] ?? 0) + $qty;
         $key = $curDate . "\x01" . $curBill . "\x01" . $itemKey . "\x01" . $reason;
