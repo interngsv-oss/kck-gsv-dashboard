@@ -109,6 +109,9 @@
     font-family:var(--body-font);
   }
   .gate-input:focus{border-color:var(--brand-gold);outline:none;}
+  /* "Show password" checkbox under the password box */
+  .gate-show{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--on-dark-soft);cursor:pointer;user-select:none;width:fit-content;}
+  .gate-show input{width:16px;height:16px;accent-color:var(--brand-gold);cursor:pointer;margin:0;}
   .gate-error{color:#E88A78;font-size:13px;}
   .gate-status{color:var(--on-dark-soft);font-size:13px;}
   #gateSubmitBtn:disabled{opacity:.65;cursor:default;}
@@ -141,6 +144,7 @@
         <input class="gate-input" type="email" id="gateEmail" autocomplete="username" required>
         <label class="gate-label" for="gatePassword">Password</label>
         <input class="gate-input" type="password" id="gatePassword" autocomplete="current-password" required>
+        <label class="gate-show"><input type="checkbox" id="gateShowPw"> Show password</label>
         <div id="gateCodeWrap" hidden>
           <label class="gate-label" for="gateCode">Authenticator code</label>
           <input class="gate-input" type="text" id="gateCode" inputmode="numeric" autocomplete="one-time-code" maxlength="8" style="width:100%;box-sizing:border-box;">
@@ -164,6 +168,13 @@ const gateImg = document.getElementById("gateLogoImg");
 const markNoLogo = () => document.getElementById("gateLogoTile").classList.add("no-img");
 gateImg.addEventListener("error", markNoLogo);
 if (gateImg.complete && !gateImg.naturalWidth) markNoLogo();
+
+/* Show / hide the password so a typo (or a missing last character) is easy to spot. */
+const gatePw = document.getElementById("gatePassword");
+document.getElementById("gateShowPw").addEventListener("change", e => {
+  gatePw.type = e.target.checked ? "text" : "password";
+  gatePw.focus();
+});
 
 const gateForm = document.getElementById("gateForm");
 const gateError = document.getElementById("gateError");
