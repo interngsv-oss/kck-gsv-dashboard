@@ -335,17 +335,18 @@ function kck_parse_discount_report(string $fp, string $branchLabel, array $billT
 
 function kck_classify_cancel_reason($comment): string {
     $c = $comment === null ? '' : trim((string) $comment);
-    if ($c === '' || $c === '-') return 'Not Specified';
+    if ($c === '') return 'Not Specified';
     $cl = strtolower($c);
     if ($cl === 'guest cancellation') return 'Guest Cancellation';
     if ($cl === 'change of item') return 'Change Of Item';
     return 'Other';
 }
 
-/** A comment cell's text, or '' when it is blank / "-" / "N/A" (Posist's own "nothing here" markers). */
+/** A comment cell's text exactly as typed in the KOT report, or '' only when the cell is blank.
+ * Anything else ("-", "N/A", "1", "w"...) is a real comment and is kept as the reason. */
 function kck_real_comment($comment): string {
-    $c = $comment === null ? '' : trim(preg_replace('/\s+/', ' ', (string) $comment));
-    return ($c === '' || $c === '-' || strtolower($c) === 'n/a') ? '' : $c;
+    if (is_float($comment) && floor($comment) == $comment) $comment = (int) $comment; // Excel-typed "1" arrives as 1.0
+    return $comment === null ? '' : trim(preg_replace('/\s+/', ' ', (string) $comment));
 }
 
 /** Shown when Posist holds no reason anywhere for a cancelled item; the KOT's own status

@@ -293,7 +293,7 @@ def _classify_cancel_reason(comment):
     looking comment) - openpyxl then reads it as an int/float, not a str,
     which .strip() can't handle."""
     c = "" if comment is None else str(comment).strip()
-    if c in ("", "-"):
+    if c == "":
         return "Not Specified"
     cl = c.lower()
     if cl == "guest cancellation":
@@ -304,9 +304,11 @@ def _classify_cancel_reason(comment):
 
 
 def _real_comment(comment):
-    """A comment cell's text, or "" when it is blank / "-" / "N/A" (Posist's own "nothing here" markers)."""
-    c = "" if comment is None else " ".join(str(comment).split())
-    return "" if c in ("", "-") or c.lower() == "n/a" else c
+    """A comment cell's text exactly as typed in the KOT report, or "" only when the cell is blank.
+    Anything else ("-", "N/A", "1", "w"...) is a real comment and is kept as the reason."""
+    if isinstance(comment, float) and comment.is_integer():
+        comment = int(comment)  # an Excel-typed "1" arrives as 1.0
+    return "" if comment is None else " ".join(str(comment).split())
 
 
 def _no_reason_text(status):
