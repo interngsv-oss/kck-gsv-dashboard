@@ -1501,7 +1501,7 @@ document.addEventListener("scroll", e => { if (openPop && !openPop.el.contains(e
 window.addEventListener("resize", closePop);
 
 /* Speed: only the page on screen is drawn; the others are drawn when opened (see activatePage). */
-const TABLE_FIRST_ROWS = 150, TABLE_CHUNK_ROWS = 400;
+const TABLE_FIRST_ROWS = 150, TABLE_CHUNK_ROWS = 200;
 function isOnShownPage(el){ const p = el && el.closest(".page"); return !p || p.classList.contains("active"); }
 
 class DataTable {
@@ -1545,6 +1545,12 @@ class DataTable {
         </div>
       </div>`;
     this.tbody = this.el.querySelector("tbody");
+    this.scroller = this.el.querySelector(".table-scroll");
+    // Speed: more rows are drawn when the table is scrolled near its end (see render)
+    this.scroller.addEventListener("scroll", () => {
+      const s = this.scroller;
+      while (this.pending && s.scrollTop + s.clientHeight > s.scrollHeight - 600) this.appendChunk();
+    }, { passive:true });
     this.headRow = this.el.querySelector("thead tr:first-child");
     this.totalRow = this.el.querySelector("tr.total-row");
     this.el.querySelector(".tf-export").addEventListener("click", () => exportSingleTable(this));
@@ -1618,7 +1624,6 @@ class DataTable {
   render(){
     this.stale = false;
     this.pending = null;
-    clearTimeout(this.chunkTimer);
     const rows = this.rows();
     const cols = this.columns;
     if (!rows.length){
@@ -1627,14 +1632,12 @@ class DataTable {
       const rowHtml = r => "<tr>" + cols.map(c =>
         `<td class="${[c.right ? "r" : "", c.cls || ""].join(" ")}">${c.cell ? c.cell(r) : esc(c.text(r))}</td>`
       ).join("") + "</tr>";
-      /* Speed: the first rows are drawn at once, the rest in small batches right after, so a click never
-         waits for thousands of rows (every row still ends up in the table, as before). */
+      /* Speed: the first rows are drawn at once; further rows are drawn as the table is scrolled towards its
+         end (moreOnScroll), so a click never waits for - or keeps the browser busy with - tens of thousands of
+         rows. Every row is still reachable by scrolling; totals, Excel and print always use all rows. */
       this.tbody.innerHTML = rows.slice(0, TABLE_FIRST_ROWS).map(rowHtml).join("");
-      if (rows.length > TABLE_FIRST_ROWS){
-        this.pending = { rows, next: TABLE_FIRST_ROWS, rowHtml };
-        const step = () => { this.appendChunk(); if (this.pending) this.chunkTimer = setTimeout(step, 0); };
-        this.chunkTimer = setTimeout(step, 0);
-      }
+      if (rows.length > TABLE_FIRST_ROWS) this.pending = { rows, next: TABLE_FIRST_ROWS, rowHtml };
+      this.scroller.scrollTop = 0;
     }
     // totals row: sits right under the column headers rather than at the end of the table.
     // label spans the leading columns that have no total.

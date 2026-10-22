@@ -4,7 +4,16 @@
 function kck_json(array $data, int $status = 200): void {
     http_response_code($status);
     header('Content-Type: application/json');
-    echo json_encode($data);
+    $body = json_encode($data);
+    // Speed: the data lists (bills, dish sales, ...) are megabytes of repetitive JSON; browsers that accept it get
+    // them gzip-compressed, about a tenth of the size. Skipped when PHP itself already compresses its output.
+    if (strlen($body) > 2048 && function_exists('gzencode') && !ini_get('zlib.output_compression') && !headers_sent()
+            && stripos($_SERVER['HTTP_ACCEPT_ENCODING'] ?? '', 'gzip') !== false) {
+        header('Content-Encoding: gzip');
+        header('Vary: Accept-Encoding');
+        $body = gzencode($body, 5);
+    }
+    echo $body;
     exit;
 }
 
