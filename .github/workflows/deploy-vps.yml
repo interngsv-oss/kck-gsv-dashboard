@@ -1,0 +1,35 @@
+# Every push to main: update the KCK dashboard on the GSV VPS (like the GSV Workspace's own deploy).
+# Needs two repository secrets (GitHub -> Settings -> Secrets and variables -> Actions):
+#   VPS_HOST     the VPS IP address
+#   VPS_SSH_KEY  a private key whose public half is in /root/.ssh/authorized_keys on the VPS
+# Until both exist, nothing is deployed (the step says so and succeeds).
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-vps
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      HAS_KEY: ${{ secrets.VPS_SSH_KEY != '' && secrets.VPS_HOST != '' }}
+    steps:
+      - name: Update the VPS
+        if: env.HAS_KEY == 'true'
+        env:
+          KEY: ${{ secrets.VPS_SSH_KEY }}
+          HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new "root@$HOST" 'cd /opt/kck-dashboard && bash deploy/vps/update.sh'
+      - name: Deployment not set up yet
+        if: env.HAS_KEY != 'true'
+        run: echo "VPS_HOST / VPS_SSH_KEY secrets not set - skipping the deploy."

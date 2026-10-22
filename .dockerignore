@@ -1,0 +1,8 @@
+.git
+.github
+backend/data
+php_backend/config.php
+php_backend/vendor
+deploy/vps/.env
+deploy/vps/config.php
+**/__pycache__

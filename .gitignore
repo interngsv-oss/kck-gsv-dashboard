@@ -5,3 +5,5 @@ backend/data/
 .qodo/
 .env*
 .claude/
+deploy/vps/.env
+deploy/vps/config.php

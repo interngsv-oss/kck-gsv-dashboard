@@ -1,0 +1,41 @@
+# KCK Sales Dashboard on the GSV VPS (folder /opt/kck-dashboard). Two containers:
+#   kck-web  the PHP dashboard (Apache), reached only through the GSV Workspace's Caddy (HTTPS) on the
+#            shared network "tools_default" - it opens no port to the internet itself
+#   kck-db   its own MariaDB database (data kept in the "kck-db" volume)
+# Files next to this one on the VPS (never in git): .env (database passwords) and config.php (the app's config).
+name: kck
+
+services:
+  kck-web:
+    build:
+      context: ../..
+      dockerfile: deploy/vps/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - kck-db
+    volumes:
+      - ./config.php:/var/www/html/config.php:ro
+      - kck-tmp:/var/kck-tmp
+    networks:
+      - default
+      - workspace
+
+  kck-db:
+    image: mariadb:11
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MARIADB_AUTO_UPGRADE: "1"
+    volumes:
+      - kck-db:/var/lib/mysql
+    networks:
+      - default
+
+networks:
+  workspace:
+    external: true
+    name: tools_default      # the GSV Workspace's network (docker network ls), where its Caddy runs
+
+volumes:
+  kck-db:
+  kck-tmp:

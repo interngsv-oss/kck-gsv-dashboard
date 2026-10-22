@@ -1374,9 +1374,11 @@ function applyDashboardData(raw){
      calendar's min/max directly from the bills actually loaded avoids
      depending on that round-tripping exactly. */
   if (ALL_BILLS.length){
-    const times = ALL_BILLS.map(r => r.date.getTime());
-    DATA_MIN_DATE = new Date(Math.min(...times));
-    DATA_MAX_DATE = new Date(Math.max(...times));
+    // a plain loop: Math.min(...times) fails once there are more bills than the browser allows as arguments
+    let lo = Infinity, hi = -Infinity;
+    for (const r of ALL_BILLS){ const t = r.date.getTime(); if (t < lo) lo = t; if (t > hi) hi = t; }
+    DATA_MIN_DATE = new Date(lo);
+    DATA_MAX_DATE = new Date(hi);
   } else {
     DATA_MIN_DATE = dayOffset(DAYS_OF_DATA);
     DATA_MAX_DATE = TODAY;
@@ -1498,6 +1500,10 @@ document.addEventListener("keydown", e => { if (e.key === "Escape" && openPop){ 
 document.addEventListener("scroll", e => { if (openPop && !openPop.el.contains(e.target)) closePop(); }, true);
 window.addEventListener("resize", closePop);
 
+/* Speed: only the page on screen is drawn; the others are drawn when opened (see activatePage). */
+const TABLE_FIRST_ROWS = 150, TABLE_CHUNK_ROWS = 400;
+function isOnShownPage(el){ const p = el && el.closest(".page"); return !p || p.classList.contains("active"); }
+
 class DataTable {
   /* columns: { key, label, type:"text"|"num"|"date", right, text(r), sort(r), cell(r), total(rows), cls } */
   constructor({ mount, columns, sort, noun, empty, onChange, sheetName }){
@@ -1559,7 +1565,19 @@ class DataTable {
     });
     this.el.querySelector(".tf-clear").addEventListener("click", () => { this.filters = {}; this.render(); });
   }
-  setData(rows){ this.all = rows; this.render(); }
+  /* Speed: a table on a page that isn't on screen only keeps its data (exports use this.all, never the
+     screen); its rows are drawn when its page is opened (ensureShown, from activatePage). */
+  setData(rows){ this.all = rows; if (isOnShownPage(this.el)) this.render(); else this.stale = true; }
+  ensureShown(){ if (this.stale && isOnShownPage(this.el)) this.render(); }
+  /* Draws any rows still waiting to be drawn, at once - before printing / the PDF capture. */
+  flush(){ while (this.pending) this.appendChunk(); }
+  appendChunk(){
+    const p = this.pending; if (!p) return;
+    const end = Math.min(p.next + TABLE_CHUNK_ROWS, p.rows.length);
+    this.tbody.insertAdjacentHTML("beforeend", p.rows.slice(p.next, end).map(p.rowHtml).join(""));
+    p.next = end;
+    if (end >= p.rows.length) this.pending = null;
+  }
   sortVal(c, r){ return c.sort ? c.sort(r) : c.text(r); }
   passes(r, exceptKey){
     for (const key in this.filters){
@@ -1598,14 +1616,25 @@ class DataTable {
     return inc.length === 1 ? inc[0].text : null;
   }
   render(){
+    this.stale = false;
+    this.pending = null;
+    clearTimeout(this.chunkTimer);
     const rows = this.rows();
     const cols = this.columns;
     if (!rows.length){
       this.tbody.innerHTML = `<tr><td class="empty-cell" colspan="${cols.length}">${this.empty}</td></tr>`;
     } else {
-      this.tbody.innerHTML = rows.map(r => "<tr>" + cols.map(c =>
+      const rowHtml = r => "<tr>" + cols.map(c =>
         `<td class="${[c.right ? "r" : "", c.cls || ""].join(" ")}">${c.cell ? c.cell(r) : esc(c.text(r))}</td>`
-      ).join("") + "</tr>").join("");
+      ).join("") + "</tr>";
+      /* Speed: the first rows are drawn at once, the rest in small batches right after, so a click never
+         waits for thousands of rows (every row still ends up in the table, as before). */
+      this.tbody.innerHTML = rows.slice(0, TABLE_FIRST_ROWS).map(rowHtml).join("");
+      if (rows.length > TABLE_FIRST_ROWS){
+        this.pending = { rows, next: TABLE_FIRST_ROWS, rowHtml };
+        const step = () => { this.appendChunk(); if (this.pending) this.chunkTimer = setTimeout(step, 0); };
+        this.chunkTimer = setTimeout(step, 0);
+      }
     }
     // totals row: sits right under the column headers rather than at the end of the table.
     // label spans the leading columns that have no total.
@@ -1808,10 +1837,22 @@ const tblHourlySales = new DataTable({
    CHARTS
 ===================================================================== */
 const charts = {};
+/* Speed: a chart on a page that isn't on screen is only remembered (latest figures) and drawn when its page
+   is opened (applyPendingCharts, from activatePage); a change of filter redraws a chart at once, without the
+   one-second animation on every chart (a chart's first appearance is animated as before). */
+const pendingCharts = {};
 function upsertChart(id, config, update){
   if (!window.Chart) return;
-  if (charts[id]){ update(charts[id]); charts[id].update(); return; }
+  if (!isOnShownPage(document.getElementById(id))){ pendingCharts[id] = { config, update }; return; }
+  delete pendingCharts[id];
+  if (charts[id]){ update(charts[id]); charts[id].update("none"); return; }
   charts[id] = new Chart(document.getElementById(id).getContext("2d"), config);
+}
+function applyPendingCharts(){
+  Object.keys(pendingCharts).forEach(id => {
+    const p = pendingCharts[id];
+    if (isOnShownPage(document.getElementById(id))) upsertChart(id, p.config, p.update);
+  });
 }
 const axisTitle = t => t ? { display:true, text:t, color:C.inkSoft, font:{ size:12, weight:"600" } } : { display:false };
 const valueAxis = (money, small, title) => ({
@@ -2265,8 +2306,14 @@ function activatePage(key){
     if (on) b.scrollIntoView({ block:"nearest", inline:"nearest" });
   });
   document.querySelectorAll(".page").forEach(p => p.classList.toggle("active", p.id === "page-" + key));
-  requestAnimationFrame(() => Object.values(charts).forEach(c => c.resize()));
+  // Speed: draw this page's tables / charts now if a filter changed while it was hidden
+  [tblCancel, tblItems, tblDiscounts, tblHourly, tblHourlySales].forEach(t => t.ensureShown());
+  applyPendingCharts();
+  requestAnimationFrame(() => Object.entries(charts).forEach(([id, c]) => { if (isOnShownPage(c.canvas)) c.resize(); }));
 }
+// Print / "Download Report" and the shared PDF show every row of the table on screen
+const flushTables = () => [tblCancel, tblItems, tblDiscounts, tblHourly, tblHourlySales].forEach(t => t.flush());
+window.addEventListener("beforeprint", flushTables);
 document.getElementById("pageTabs").addEventListener("click", e => {
   const b = e.target.closest(".tab-btn"); if (b){ activatePage(b.dataset.page); window.scrollTo({ top:0 }); }
 });
@@ -3534,6 +3581,7 @@ deleteMonthConfirmBtn.addEventListener("click", async () => {
    PDF library, or a browser without Web Share). */
 const PDF_IGNORE_SELECTOR = ".controls, .page-tabs, .site-footer, .modal-overlay, .xf-btn, .clear-chip, .oc-link, .tf-export";
 async function captureReportCanvas(){
+  flushTables();
   return html2canvas(document.getElementById("appRoot"), {
     scale: 2,
     backgroundColor: "#ffffff",
